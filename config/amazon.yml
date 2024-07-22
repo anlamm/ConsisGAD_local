@@ -7,7 +7,7 @@ num-layers: 1
 epochs: 100
 lr: 0.001
 weight-decay: 0.00001
-device: 1
+device: 0
 training-ratio: 1
 train-procedure: 'CT'
 mlp-drop: 0.3

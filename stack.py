@@ -9,6 +9,7 @@ import torch.optim as optim
 import torch.nn.functional as F
 from modules.data_loader import get_index_loader_test
 from models import simpleGNN_MR
+# from baseline_model import simpleGNN_MR   ###### Modify to formal GCN
 import modules.mod_utls as m_utls
 from modules.loss import nll_loss, l2_regularization, nll_loss_raw
 from modules.evaluation import eval_pred
@@ -26,6 +27,9 @@ import warnings
 import wandb
 import yaml
 warnings.filterwarnings("ignore")
+
+
+from modules.utils import save_results
 
 
 class SoftAttentionDrop(nn.Module):
@@ -200,6 +204,43 @@ def UDA_train_epoch(epoch, model, loss_func, graph, label_loader, unlabel_loader
             print(f"Iter {idx+1}/{num_iters}, loss: {loss.item()}")
         
 
+def simple_train_epoch(epoch, model, loss_func, graph, label_loader, unlabel_loader, optimizer, augmentor, args):
+    model.train()
+    num_iters = args['train-iterations']
+    
+    sampler, attn_drop, ad_optim = augmentor
+    
+    unlabel_loader_iter = iter(unlabel_loader)
+    label_loader_iter = iter(label_loader)
+    
+    for idx in range(num_iters):
+        try:
+            label_idx = label_loader_iter.__next__()
+        except:
+            label_loader_iter = iter(label_loader)
+            label_idx = label_loader_iter.__next__()
+        try:
+            unlabel_idx = unlabel_loader_iter.__next__()
+        except:
+            unlabel_loader_iter = iter(unlabel_loader)
+            unlabel_idx = unlabel_loader_iter.__next__()
+
+        _, _, s_blocks = fixed_augmentation(graph, label_idx.to(args['device']), sampler, aug_type='none')
+        s_pred = model(s_blocks)
+        s_target = s_blocks[-1].dstdata['label']
+            
+        sup_loss, _ = loss_func(s_pred, s_target)
+
+        # loss = sup_loss + unsup_loss + args['weight-decay'] * l2_regularization(model)
+        loss = sup_loss + args['weight-decay'] * l2_regularization(model)
+
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()     
+
+        if idx % 10 == 0:
+            print(f"Iter {idx+1}/{num_iters}, loss: {loss.item()}")
+
 def get_model_pred(model, graph, data_loader, sampler, args):
     model.eval()
     
@@ -267,7 +308,8 @@ def run_model(args):
     
     sampler = dgl.dataloading.MultiLayerFullNeighborSampler(args['num-layers'])
     
-    train_epoch = UDA_train_epoch
+    # train_epoch = UDA_train_epoch
+    train_epoch = simple_train_epoch
     attn_drop = SoftAttentionDrop(args).to(args['device'])
     if args['trainable-optim'] == 'rmsprop':
         ad_optim = optim.RMSprop(attn_drop.parameters(), lr=args['trainable-lr'], weight_decay=0.0)
@@ -308,6 +350,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', required=True, type=str, help='Path to the config file.')
     parser.add_argument('--runs', type=int, default=1, help='Number of runs. Default is 1.')
+    parser.add_argument('--layers', type=int, default=1, help='Number of GNN layers.')
+    args0 = parser.parse_args()
     cfg = vars(parser.parse_args())
     
     args = get_config(cfg['config'])
@@ -315,6 +359,7 @@ if __name__ == '__main__':
         args['device'] = torch.device('cuda:%d'%(args['device']))
     else:
         args['device'] = torch.device('cpu')
+    args['num-layers'] = args0.layers
                                             
     print(args)
     final_results = []
@@ -328,4 +373,31 @@ if __name__ == '__main__':
     print(mean_results)
     print(std_results)
     print('total time: ', time.time()-start_time)
+
+
+    ##### Formalize result same as GADBench
+    dataset = args['data-set']
+    dataset_name = dataset
+
+    columns = ['name']
+    for metric in ['AUROC mean', 'AUROC std', 'AUPRC mean', 'AUPRC std',
+                    'marco f1 mean', 'marco f1 std', 'Time']:
+        columns.append(dataset+'-'+metric)
+    results = pd.DataFrame(columns=columns)
+    file_id = None
+
+    model_result = {'name': "ConsisGAD"}
+    model_result[dataset_name+'-AUROC mean'] = mean_results[0]
+    model_result[dataset_name+'-AUROC std'] = std_results[0]
+    model_result[dataset_name+'-AUPRC mean'] = mean_results[1]
+    model_result[dataset_name+'-AUPRC std'] = std_results[1]
+    model_result[dataset_name+'-marco f1 mean'] = mean_results[2]
+    model_result[dataset_name+'-marco f1 std'] = std_results[2]
+    model_result[dataset_name+'-Time'] = (time.time()-start_time) / cfg['runs'] ### Average time
+
+    model_result = pd.DataFrame(model_result, index=[0])
+    results = pd.concat([results, model_result])
+    file_id = save_results(results, file_id)
+
+
     

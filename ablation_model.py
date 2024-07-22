@@ -28,7 +28,7 @@ class MySimpleConv_MR_test(nn.Module):
         
         self.proj_edges = nn.ModuleDict()
         for e_t in self.e_types:
-            self.proj_edges[e_t] = build_mlp(in_feats * 2, out_feats, drop_rate, hid_dim=self.mlp3_dim)
+            self.proj_edges[e_t] = build_mlp(in_feats*2, out_feats, drop_rate, hid_dim=self.mlp3_dim)
         
         self.proj_out = CustomLinear(out_feats, out_feats, bias=True)
         if in_feats != out_feats:
@@ -46,8 +46,11 @@ class MySimpleConv_MR_test(nn.Module):
         tmp_fn = self.proj_edges[e_t]
             
         def fnc(edges):
-            msg = torch.cat([edges.src['h'], edges.dst['h']], dim=-1)
+            msg = torch.cat([edges.src['h'], edges.dst['h']], dim=-1)  #### A5: w homophily-aware aggregation
             msg = tmp_fn(msg)
+            # msg = edges.src['h'] ##### A2: w/o homophily-aware aggregation: src==neighbor, dst=target node???
+            # msg = tmp_fn(msg)
+            
             return {'msg': msg}
         return fnc
         
@@ -77,6 +80,7 @@ class MySimpleConv_MR_test(nn.Module):
             out = g.dstdata.pop('out')
             out = torch.sum(out, dim=1)
             out = self.proj_out(out) + self.proj_skip(dst_feats)
+            # out = self.proj_out(out) #### A1: w/o proj_skip
     
             return out
 
@@ -96,7 +100,7 @@ class simpleGNN_MR(nn.Module):
         self.bn_type = bn_type
         
         self.proj_in = build_mlp(in_feats, hidden_feats, self.mlp_drop, hid_dim=self.mlp12_dim)
-        in_feats = hidden_feats
+        in_feats = hidden_feats ##### A4: w/o proj_in
         
         self.in_bn = None
         if self.bn_type in [1, 3]:
@@ -112,7 +116,9 @@ class simpleGNN_MR(nn.Module):
             
             self.bn_list.append(CustomBatchNorm1d(hidden_feats))
         
-        self.proj_out = build_mlp(hidden_feats*(num_layers+1), out_feats, self.mlp_drop, 
+        # self.proj_out = build_mlp(hidden_feats*(num_layers+1), out_feats, self.mlp_drop, 
+        #                           hid_dim=self.mlp12_dim, final_act=False)
+        self.proj_out = build_mlp(hidden_feats*num_layers, out_feats, self.mlp_drop, 
                                   hid_dim=self.mlp12_dim, final_act=False)
         
         self.dropout = nn.Dropout(p=self.hidden_drop)
@@ -130,7 +136,7 @@ class simpleGNN_MR(nn.Module):
         if self.in_bn is not None:
             h = self.in_bn(h, update_running_stats=update_bn)
         
-        inter_results.append(h[:final_num])
+        # inter_results.append(h[:final_num]) ####### A3: w/o skip connection
         for block, gnn, bn in zip(blocks, self.gnn_list, self.bn_list):
             h = gnn(block, h, update_bn)
             h = bn(h, update_running_stats=update_bn)
@@ -142,7 +148,7 @@ class simpleGNN_MR(nn.Module):
         if return_logits:
             return inter_results
         else:
-            h = torch.stack(inter_results, dim=1)
-            h = h.reshape(h.shape[0], -1)
+            h = torch.stack(inter_results, dim=1)   ##### Skip connection:   (N,D) --> (N,L,D), L=#{GNN layers}
+            h = h.reshape(h.shape[0], -1)  ###### (N,L,D) --> (N, L*D)
             h = self.proj_out(h)
             return h.log_softmax(dim=-1)

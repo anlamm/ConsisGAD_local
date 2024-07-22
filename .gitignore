@@ -1,3 +1,12 @@
+model-weights/*
+data/**/*/
+data/*.zip
+data/tfinance
+logs/*
+images/*
+results/*
+
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

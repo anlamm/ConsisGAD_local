@@ -9,6 +9,7 @@ import torch.optim as optim
 import torch.nn.functional as F
 from modules.data_loader import get_index_loader_test
 from models import simpleGNN_MR
+# from baseline_model import simpleGNN_MR   ###### Modify to formal GCN
 import modules.mod_utls as m_utls
 from modules.loss import nll_loss, l2_regularization, nll_loss_raw
 from modules.evaluation import eval_pred
@@ -26,6 +27,9 @@ import warnings
 import wandb
 import yaml
 warnings.filterwarnings("ignore")
+
+
+from modules.utils import save_results
 
 
 class SoftAttentionDrop(nn.Module):
@@ -200,6 +204,49 @@ def UDA_train_epoch(epoch, model, loss_func, graph, label_loader, unlabel_loader
             print(f"Iter {idx+1}/{num_iters}, loss: {loss.item()}")
         
 
+def simple_train_epoch(epoch, model, loss_func, graph, label_loader, unlabel_loader, optimizer, augmentor, args):
+    model.train()
+    num_iters = args['train-iterations']
+    
+    sampler, attn_drop, ad_optim = augmentor
+    
+    unlabel_loader_iter = iter(unlabel_loader)
+    label_loader_iter = iter(label_loader)
+    
+    losses = []
+    for idx in range(num_iters):
+        try:
+            label_idx = label_loader_iter.__next__()
+        except:
+            label_loader_iter = iter(label_loader)
+            label_idx = label_loader_iter.__next__()
+        try:
+            unlabel_idx = unlabel_loader_iter.__next__()
+        except:
+            unlabel_loader_iter = iter(unlabel_loader)
+            unlabel_idx = unlabel_loader_iter.__next__()
+
+        _, _, s_blocks = fixed_augmentation(graph, label_idx.to(args['device']), sampler, aug_type='none')
+        s_pred = model(s_blocks)
+        s_target = s_blocks[-1].dstdata['label']
+            
+        sup_loss, _ = loss_func(s_pred, s_target)
+
+        # loss = sup_loss + unsup_loss + args['weight-decay'] * l2_regularization(model)
+        loss = sup_loss + args['weight-decay'] * l2_regularization(model)
+
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()     
+
+        # if idx % 10 == 0:
+        #     print(f"Iter {idx+1}/{num_iters}, loss: {loss.item()}")
+
+        losses.append(loss.item())
+
+    if epoch % 10 == 0:
+        print(f"Epoch {epoch+1}/{args['epochs']}, loss: {np.mean(losses)}")
+
 def get_model_pred(model, graph, data_loader, sampler, args):
     model.eval()
     
@@ -251,8 +298,25 @@ def run_model(args):
                                                                                            unlabel_ratio=args['unlabel-ratio'],
                                                                                            training_ratio=args['training-ratio'],
                                                                                            shuffle_train=args['shuffle-train'], 
-                                                                                           to_homo=args['to-homo'])
+                                                                                           to_homo=args['to-homo'],
+                                                                                           random_feature=args['random_feature'],
+                                                                                           verbose=args['debug'],
+                                                                                           load_offline=True,
+                                                                                           seed = args['seed'])
+    
+    if args['drop_edges']:
+        for etype in graph.etypes:
+            nedges = graph.num_edges(etype=etype)
+            graph.remove_edges(torch.arange(nedges), etype=etype)
+        print(f"#Nodes: {graph.number_of_nodes()}, #Edges: {graph.number_of_edges()}")
+    
     graph = graph.to(args['device'])
+    print(f"#Features: {graph.ndata['feature'].shape}")
+
+    
+
+    if args['debug']:
+        exit(0)
     
     args['node-in-dim'] = graph.ndata['feature'].shape[1]
     args['node-out-dim'] = 2
@@ -267,7 +331,8 @@ def run_model(args):
     
     sampler = dgl.dataloading.MultiLayerFullNeighborSampler(args['num-layers'])
     
-    train_epoch = UDA_train_epoch
+    # train_epoch = UDA_train_epoch
+    train_epoch = simple_train_epoch
     attn_drop = SoftAttentionDrop(args).to(args['device'])
     if args['trainable-optim'] == 'rmsprop':
         ad_optim = optim.RMSprop(attn_drop.parameters(), lr=args['trainable-lr'], weight_decay=0.0)
@@ -283,6 +348,8 @@ def run_model(args):
         val_results, test_results = val_epoch(epoch, my_model, graph, valid_loader, test_loader, sampler, args)
         
         if val_results['auc-roc'] > best_val:
+            print(f"Current Best Epoch: {epoch+1}")
+
             best_val = val_results['auc-roc']
             test_in_best_val = test_results
             
@@ -308,6 +375,11 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', required=True, type=str, help='Path to the config file.')
     parser.add_argument('--runs', type=int, default=1, help='Number of runs. Default is 1.')
+    parser.add_argument('--random_feature', action="store_true")
+    parser.add_argument('--debug', action="store_true")
+    parser.add_argument('--save_path', type=str, default="model-weights", help="path for saving model weights")
+    parser.add_argument('--drop_edges', action="store_true")
+    args0 = parser.parse_args()
     cfg = vars(parser.parse_args())
     
     args = get_config(cfg['config'])
@@ -315,10 +387,26 @@ if __name__ == '__main__':
         args['device'] = torch.device('cuda:%d'%(args['device']))
     else:
         args['device'] = torch.device('cpu')
-                                            
+
+    # args['epochs'] = 300
+    args['debug'] = False
+    if args0.debug:
+        args['debug'] = True
+    args['save_path'] = args0.save_path
+    args['random_feature'] = False
+    if args0.random_feature:
+        args['random_feature'] = True
+        args['save_path'] = f"{args['save_path']}/random_feature"
+    args['drop_edges'] = False
+    if args0.drop_edges:
+        args['drop_edges'] = True
+        args['save_path'] = f"{args['save_path']}/drop_edges"
+
+
     print(args)
     final_results = []
     for r in range(cfg['runs']):
+        args['seed'] = r
         final_results.append(run_model(args))
         
     final_results = np.array(final_results)
@@ -328,4 +416,31 @@ if __name__ == '__main__':
     print(mean_results)
     print(std_results)
     print('total time: ', time.time()-start_time)
+
+
+    ##### Formalize result same as GADBench
+    dataset = args['data-set']
+    dataset_name = dataset
+
+    columns = ['name']
+    for metric in ['AUROC mean', 'AUROC std', 'AUPRC mean', 'AUPRC std',
+                    'marco f1 mean', 'marco f1 std', 'Time']:
+        columns.append(dataset+'-'+metric)
+    results = pd.DataFrame(columns=columns)
+    file_id = None
+
+    model_result = {'name': "ConsisGAD"}
+    model_result[dataset_name+'-AUROC mean'] = mean_results[0]
+    model_result[dataset_name+'-AUROC std'] = std_results[0]
+    model_result[dataset_name+'-AUPRC mean'] = mean_results[1]
+    model_result[dataset_name+'-AUPRC std'] = std_results[1]
+    model_result[dataset_name+'-marco f1 mean'] = mean_results[2]
+    model_result[dataset_name+'-marco f1 std'] = std_results[2]
+    model_result[dataset_name+'-Time'] = (time.time()-start_time) / cfg['runs'] ### Average time
+
+    model_result = pd.DataFrame(model_result, index=[0])
+    results = pd.concat([results, model_result])
+    file_id = save_results(results, file_id)
+
+
     

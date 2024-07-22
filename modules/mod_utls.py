@@ -13,6 +13,7 @@ def to_np(x):
 
 
 def store_model(my_model, args):
-    file_path = os.path.join('model-weights',
-                             args['data-set'] + '.pth')
+    os.makedirs(f"{args['save_path']}", exist_ok=True)
+    file_path = os.path.join(f"{args['save_path']}",
+                             f"{args['data-set']}-{args['seed']}.pth")
     torch.save(my_model.state_dict(), file_path)

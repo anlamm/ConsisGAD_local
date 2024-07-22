@@ -1,3 +1,7 @@
+###### put this file together with main.py
+###### python -u edge_emb.py --config config/yelp.yml --runs 1 --mode train
+
+
 import argparse
 import sys
 import os
@@ -26,6 +30,11 @@ import warnings
 import wandb
 import yaml
 warnings.filterwarnings("ignore")
+
+import seaborn as sns
+from sklearn.manifold import TSNE
+import pandas as pd
+import matplotlib.pyplot as plt
 
 
 class SoftAttentionDrop(nn.Module):
@@ -302,12 +311,125 @@ def num_params(model):
     pytorch_total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     return pytorch_total_params
 
+
+def fetch_edge_emb(model, blocks: list, update_bn: bool=True):
+    import dgl.function as fn
+    model.eval()
+
+    with torch.no_grad():
+
+        final_num = blocks[-1].num_dst_nodes()
+        h = blocks[0].srcdata['feature']
+        h = model.dropout_in(h)
+            
+        inter_results = []
+        h = model.proj_in(h)
+            
+        if model.in_bn is not None:
+            h = model.in_bn(h, update_running_stats=update_bn)
+            
+        inter_results.append(h[:final_num])
+        for block, gnn, bn in zip(blocks, model.gnn_list, model.bn_list):
+            g = block
+            features = h
+            with g.local_scope():
+                src_feats = dst_feats = features
+                if g.is_block:
+                    dst_feats = src_feats[:g.num_dst_nodes()]
+                g.srcdata['h'] = src_feats
+                g.dstdata['h'] = dst_feats
+                
+                for e_t in g.etypes:
+                    g.apply_edges(gnn.udf_edges(e_t), etype=e_t)
+                    
+                # if gnn.bn_type in [2, 3]:
+                #     if not gnn.multi_relation:
+                #         g.edata['msg'] = gnn.edge_bn[gnn.e_types[0]](g.edata['msg'], update_running_stats=update_bn)
+                #     else:
+                #         for e_t in g.canonical_etypes:
+                #             g.edata['msg'][e_t] = gnn.edge_bn[e_t[1]](g.edata['msg'][e_t], update_running_stats=update_bn)
+
+                # etype_dict = {}
+                # for e_t in g.etypes:
+                #     etype_dict[e_t] = (fn.copy_e('msg', 'msg'), fn.sum('msg', 'out'))
+                # g.multi_update_all(etype_dict=etype_dict, cross_reducer='stack')
+
+                out = g.edata['msg']
+
+        
+        #### Prepare the plot_data
+        plot_data = {}
+        if not gnn.multi_relation:
+            destlabels = g.dstdata['label']
+            srclabels = g.srcdata['label']
+
+            srcnodes, destnodes = g.edges()
+            assert len(srcnodes) == len(out)
+
+            edge_labels = torch.zeros(len(out))
+            edge_labels[(srclabels[srcnodes] == 1) * (destlabels[destnodes] == 1)] = 1 ## AA
+            edge_labels[(srclabels[srcnodes] == 0) * (destlabels[destnodes] == 1)] = 2 ## NA
+            edge_labels[(srclabels[srcnodes] == 1) * (destlabels[destnodes] == 0)] = 3 ## AN
+            edge_labels[(srclabels[srcnodes] == 0) * (destlabels[destnodes] == 0)] = 4 ## NN
+
+            plot_data["1"] = {"emb": out.detach().cpu().tolist(), "label": edge_labels.detach().cpu().tolist()}
+        else:
+            destlabels = g.dstdata['label']
+            srclabels = g.srcdata['label']
+
+            for e_t in g.canonical_etypes:
+                srcnodes, destnodes = g.edges(etype=e_t)
+
+                assert len(srcnodes) == len(out[e_t])
+
+                edge_labels = torch.zeros(len(out[e_t]))
+                edge_labels[(srclabels[srcnodes] == 1) * (destlabels[destnodes] == 1)] = 1 ## AA
+                edge_labels[(srclabels[srcnodes] == 0) * (destlabels[destnodes] == 1)] = 2 ## NA
+                edge_labels[(srclabels[srcnodes] == 1) * (destlabels[destnodes] == 0)] = 3 ## AN
+                edge_labels[(srclabels[srcnodes] == 0) * (destlabels[destnodes] == 0)] = 4 ## NN
+
+                plot_data[e_t] = {"emb": out[e_t].detach().cpu().tolist(), "label": edge_labels.detach().cpu().tolist()}
+
+
+        # ##### Prepare t-SNE coordinates
+        # tsne_processor = TSNE(n_components=2, random_state=1234)
+        # for etype, data in plot_data.items():
+        #     print(f"============ TSNE {etype} =============")
+        #     emb = data["emb"]
+        #     tsne_z = tsne_processor.fit_transform(emb)
+        #     plot_data[etype]["X_2d"] = tsne_z
+
+
+        # ##### Dict to pandas
+        # ### Columns: ["emb", "X_2d", "label", "etype"]
+        # df = pd.DataFrame(columns=["emb", "X_2d", "label", "etype"])
+        # for etype, data in plot_data.items():
+        #     emb, tsne_z, label = data["emb"], data["X_2d"], data["label"]
+        #     etype_list = [etype] * len(emb)
+        #     df_single = pd.DataFrame({
+        #         "emb": emb,
+        #         "X_2d": tsne_z,
+        #         "label": label, 
+        #         "etype": etype_list,
+        #     }, columns=["emb", "X_2d", "label", "etype"])
+
+        #     df = pd.concat([df, df_single], axis=0)
+
+
+        
+        return plot_data
+            
+
+
+
 if __name__ == '__main__':
     start_time = time.time()
     
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', required=True, type=str, help='Path to the config file.')
     parser.add_argument('--runs', type=int, default=1, help='Number of runs. Default is 1.')
+    parser.add_argument('--mode', type=str, default="train", help='which dataloader to use')
+    args0 = parser.parse_args()
     cfg = vars(parser.parse_args())
     
     args = get_config(cfg['config'])
@@ -315,17 +437,165 @@ if __name__ == '__main__':
         args['device'] = torch.device('cuda:%d'%(args['device']))
     else:
         args['device'] = torch.device('cpu')
-                                            
+    args['mode'] = args0.mode                                     
     print(args)
-    final_results = []
-    for r in range(cfg['runs']):
-        final_results.append(run_model(args))
-        
-    final_results = np.array(final_results)
-    mean_results = np.mean(final_results, axis=0)
-    std_results = np.std(final_results, axis=0)
+    # final_results = []
+    # for r in range(cfg['runs']):
+    #     final_results.append(run_model(args))
 
-    print(mean_results)
-    print(std_results)
+    # args['batch-size'] = 1024
+
+
+    #### Initialize graph
+    graph, label_loader, valid_loader, test_loader, unlabel_loader = get_index_loader_test(name=args['data-set'], 
+                                                                                           batch_size=args['batch-size'], 
+                                                                                           unlabel_ratio=args['unlabel-ratio'],
+                                                                                           training_ratio=args['training-ratio'],
+                                                                                           shuffle_train=args['shuffle-train'], 
+                                                                                           to_homo=args['to-homo'])
+    graph = graph.to(args['device'])
+    print(f"#Nodes: {graph.number_of_nodes()}, #Edges: {graph.number_of_edges()}")
+
+
+    #### Initialize model
+    args['node-in-dim'] = graph.ndata['feature'].shape[1]
+    args['node-out-dim'] = 2
+    
+    model = create_model(args, graph.etypes)
+    
+    #### Load model checkpoint
+    model.load_state_dict(torch.load(os.path.join('/home/yliumh/github/ConsisGAD-backup/ConsisGAD/model-weights',
+                             args['data-set'] + '.pth')))
+    
+
+    #### Initialize sampler and dataloader
+    sampler = dgl.dataloading.MultiLayerFullNeighborSampler(args['num-layers'])
+    if args['mode'] == "train":
+        data_loader = label_loader
+    else:
+        data_loader = test_loader
+
+    #### Inference edge embeddings
+    model.eval()
+    e_emb_list = []
+    target_list = []
+    plot_data = {}
+    with torch.no_grad():
+        for node_idx in data_loader:
+            _, _, blocks = sampler.sample_blocks(graph, node_idx.to(args['device']))
+            
+            plot_data_batch = fetch_edge_emb(model, blocks, update_bn=True)
+            
+            for etype, data in plot_data_batch.items():
+                emb, label = data["emb"], data["label"]
+                if etype not in plot_data:
+                    plot_data[etype] = {
+                        "emb": emb,
+                        "label": label,
+                    }
+                else:
+                    plot_data[etype]["emb"] = plot_data[etype]["emb"] + emb ## concat
+                    plot_data[etype]["label"] = plot_data[etype]["label"] + label ## concat
+
+    print(f"plot_data: {list(plot_data.keys())}")
+    ##### To make four types of edges have same amount
+    for e_t in plot_data.keys():
+        emb = torch.FloatTensor(plot_data[e_t]["emb"])
+        labels = torch.LongTensor(plot_data[e_t]["label"])
+        text_labels = np.array(["", "AA", "NA", "AN", "NN"])
+
+        AA_idx = torch.nonzero(torch.where(labels == 1, 1, 0), as_tuple=True)[0]
+        NA_idx = torch.nonzero(torch.where(labels == 2, 1, 0), as_tuple=True)[0]
+        AN_idx = torch.nonzero(torch.where(labels == 3, 1, 0), as_tuple=True)[0]
+        NN_idx = torch.nonzero(torch.where(labels == 4, 1, 0), as_tuple=True)[0]
+
+
+        min_num = min([AA_idx.shape[0], NA_idx.shape[0], AN_idx.shape[0], NN_idx.shape[0]])
+
+            
+        AA_idx = AA_idx[torch.randperm(AA_idx.shape[0])[:min_num]]
+        NA_idx = NA_idx[torch.randperm(NA_idx.shape[0])[:min_num]]
+        AN_idx = AN_idx[torch.randperm(AN_idx.shape[0])[:min_num]]
+        NN_idx = NN_idx[torch.randperm(NN_idx.shape[0])[:min_num]]
+
+
+        All_idx = torch.cat([AA_idx, NA_idx, AN_idx, NN_idx])
+        All_idx = All_idx[torch.randperm(All_idx.shape[0])]
+
+        # print(f"???: {emb.shape} {labels.shape} {torch.unique(labels)}")
+        # print(f"!!!: {min_num}, {len(All_idx)}")
+        # print(f"{AA_idx.shape} {NA_idx.shape} {AN_idx.shape} {NN_idx.shape}")
+        # print(f"{AA_idx} {NA_idx} {AN_idx} {NN_idx}")
+
+        # exit(0)
+
+        plot_data[e_t]["emb"] = emb[All_idx].tolist()
+        plot_data[e_t]["label"] = text_labels[labels[All_idx].numpy()].tolist()
+    # tsne_processor = TSNE(n_components=2, random_state=1234)
+    # for etype, data in plot_data.items():
+    #     emb = data["emb"]
+    #     print(f"============ TSNE {etype},{len(emb)},{args['mode']} =============")
+    #     tsne_z = tsne_processor.fit_transform(np.array(emb))
+    #     plot_data[etype]["x"] = tsne_z[:,0]
+    #     plot_data[etype]["y"] = tsne_z[:,1]
+    
+
+    df = pd.DataFrame(columns=["emb", "label", "etype"])
+    for etype, data in plot_data.items():
+        emb, label = data["emb"], data["label"]
+        etype_list = [etype] * len(emb)
+
+        df_single = pd.DataFrame({
+            "emb": emb,
+            "label": label, 
+            "etype": etype_list,
+        }, columns=["emb", "label", "etype"])
+
+        df = pd.concat([df, df_single], axis=0)
+    print(df.head())
+    df.to_csv(f"images/{args['data-set']}_{args['mode']}.csv", index=False) #### Save the data for futher use
+    df = df.sample(frac=1).reset_index(drop=True) ### shuffle_rows
+
+    #### plot
+    print(f"============ Plotting =============")
+    nsamples = 15000 #### Randomly sample n samples
+    os.makedirs("images", exist_ok=True)
+    if len(plot_data) > 1: ### multi-relation
+        fig, axes = plt.subplots(1, len(plot_data), figsize=(5*len(plot_data), 5))
+
+        for e_idx, etype in enumerate(list(plot_data.keys())):
+            ax = axes[e_idx]
+
+            df0 = df[df["etype"] == etype]
+            if len(df0) > nsamples:
+                df0 = df0.iloc[:nsamples, :]
+            emb = df0["emb"].to_list()
+
+            print(f"============ TSNE {etype},{len(emb)},{args['mode']} =============")
+            tsne_processor = TSNE(n_components=2, random_state=1234)
+            tsne_z = tsne_processor.fit_transform(np.array(emb))
+            df0["x"] = tsne_z[:,0]
+            df0["y"] = tsne_z[:,1]
+
+            sns.scatterplot(df0, x="x", y="y", hue="label", palette="tab10", ax=ax)
+            ax.set_title(f"{args['data-set']}, {etype}, {args['mode']}")
+    else:
+        fig = plt.figure(figsize=(5,5))
+        ax = plt.gca()
+
+        if len(df) > nsamples:
+            df = df.iloc[:nsamples, :]
+        emb = df["emb"].to_list()
+
+        print(f"============ TSNE {etype},{len(emb)},{args['mode']} =============")
+        tsne_processor = TSNE(n_components=2, random_state=1234)
+        tsne_z = tsne_processor.fit_transform(np.array(emb))
+        df["x"] = tsne_z[:,0]
+        df["y"] = tsne_z[:,1]    
+        sns.scatterplot(df, x="x", y="y", hue="label", palette="tab10", ax=ax)
+
+        ax.set_title(f"{args['data-set']}, {args['mode']}")
+
+    fig.savefig(f"images/{args['data-set']}_{args['mode']}.png", bbox_inches="tight")
     print('total time: ', time.time()-start_time)
     
