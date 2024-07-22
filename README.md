@@ -24,7 +24,7 @@ chmod +x scripts/run_baseline.sh
 cd scripts && ./run_baseline.sh
 ```
 
-The results should be stored at the `./results' directory. 
+The results should be stored at the `./results` directory. 
 
 
 
