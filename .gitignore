@@ -5,7 +5,10 @@ data/tfinance
 logs/*
 images/*
 results/*
-
+cppnode2vec
+deepwalk
+**/*.log
+**/*.csv
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

@@ -29,10 +29,19 @@ def find_best_f1(probs, labels):
         preds = np.zeros_like(labels)
         preds[probs > thres] = 1
         mf1 = f1_score(labels, preds, average='macro')
-        if mf1 > best_f1:
-            best_f1 = mf1
+
+        bf1 = f1_score(labels, preds, average='binary')
+        if bf1 > best_f1:
+            best_f1 = bf1
             best_thre = thres
     return best_f1, best_thre
+
+def reck_score(probs, labels):
+    labels = np.array(labels)
+    k = labels.sum()
+    reck = sum(labels[probs.argsort()[-k:]]) / sum(labels)
+
+    return reck
 
 
 def eval_pred(pred: Tensor, target: Tensor):
@@ -52,3 +61,21 @@ def eval_pred(pred: Tensor, target: Tensor):
     return auc_roc, auc_pr, ks_statistics, accuracy, \
         recall, precision, best_f1, best_thre
 
+def eval_pred2(pred: Tensor, target: Tensor):
+    s_pred = pred.cpu().detach().numpy()
+    s_target = target.cpu().detach().numpy()
+    
+    auc_roc = roc_auc_score(s_target, s_pred)
+    auc_pr =  average_precision_score(s_target, s_pred)
+    ks_statistics = eval_ks_statistics(s_target, s_pred)
+    
+    best_f1, best_thre = find_best_f1(s_pred, s_target)
+    p_labels = (s_pred > best_thre).astype(int)
+    accuracy = np.mean(s_target == p_labels)
+    recall = recall_score(s_target, p_labels)
+    precision = precision_score(s_target, p_labels)
+
+    reck = reck_score(s_pred, s_target)
+    
+    return auc_roc, auc_pr, ks_statistics, accuracy, \
+        recall, precision, reck, best_f1, best_thre

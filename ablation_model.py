@@ -28,7 +28,7 @@ class MySimpleConv_MR_test(nn.Module):
         
         self.proj_edges = nn.ModuleDict()
         for e_t in self.e_types:
-            self.proj_edges[e_t] = build_mlp(in_feats*2, out_feats, drop_rate, hid_dim=self.mlp3_dim)
+            self.proj_edges[e_t] = build_mlp(in_feats, out_feats, drop_rate, hid_dim=self.mlp3_dim)
         
         self.proj_out = CustomLinear(out_feats, out_feats, bias=True)
         if in_feats != out_feats:
@@ -46,10 +46,12 @@ class MySimpleConv_MR_test(nn.Module):
         tmp_fn = self.proj_edges[e_t]
             
         def fnc(edges):
-            msg = torch.cat([edges.src['h'], edges.dst['h']], dim=-1)  #### A5: w homophily-aware aggregation
-            msg = tmp_fn(msg)
+            # msg = torch.cat([edges.src['h'], edges.dst['h']], dim=-1)  #### A5: w homophily-aware aggregation
+            # msg = tmp_fn(msg)
             # msg = edges.src['h'] ##### A2: w/o homophily-aware aggregation: src==neighbor, dst=target node???
             # msg = tmp_fn(msg)
+            msg = edges.dst['h'] ##### A6.1: w/o homophily-aware aggregation: src==neighbor, dst=target node???
+            msg = tmp_fn(msg)
             
             return {'msg': msg}
         return fnc
@@ -116,10 +118,10 @@ class simpleGNN_MR(nn.Module):
             
             self.bn_list.append(CustomBatchNorm1d(hidden_feats))
         
-        # self.proj_out = build_mlp(hidden_feats*(num_layers+1), out_feats, self.mlp_drop, 
-        #                           hid_dim=self.mlp12_dim, final_act=False)
-        self.proj_out = build_mlp(hidden_feats*num_layers, out_feats, self.mlp_drop, 
+        self.proj_out = build_mlp(hidden_feats*(num_layers+1), out_feats, self.mlp_drop, 
                                   hid_dim=self.mlp12_dim, final_act=False)
+        # self.proj_out = build_mlp(hidden_feats*num_layers, out_feats, self.mlp_drop, 
+        #                           hid_dim=self.mlp12_dim, final_act=False)
         
         self.dropout = nn.Dropout(p=self.hidden_drop)
         self.dropout_in = nn.Dropout(p=self.input_drop)
@@ -136,7 +138,7 @@ class simpleGNN_MR(nn.Module):
         if self.in_bn is not None:
             h = self.in_bn(h, update_running_stats=update_bn)
         
-        # inter_results.append(h[:final_num]) ####### A3: w/o skip connection
+        inter_results.append(h[:final_num]) ####### A3: w/o skip connection
         for block, gnn, bn in zip(blocks, self.gnn_list, self.bn_list):
             h = gnn(block, h, update_bn)
             h = bn(h, update_running_stats=update_bn)

@@ -37,3 +37,4 @@ trainable-div-eps: True
 trainable-detach-mask: False
 batch-size: 32
 train-iterations: 128
+config-name: 'amazon'

@@ -37,4 +37,4 @@ trainable-div-eps: True
 trainable-detach-mask: False
 batch-size: 128
 train-iterations: 128
-
+config-name: 'tfinance'

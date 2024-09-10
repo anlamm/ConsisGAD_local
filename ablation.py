@@ -334,8 +334,8 @@ def run_model(args):
             best_val = val_results['auc-roc']
             test_in_best_val = test_results
             
-            if args['store-model']:
-                m_utls.store_model(my_model, args)
+            # if args['store-model']:
+            #     m_utls.store_model(my_model, args)
                 
     return list(test_in_best_val.values())
 

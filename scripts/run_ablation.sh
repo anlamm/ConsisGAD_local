@@ -62,6 +62,12 @@ cd ..
 # CUDA_VISIBLE_DEVICES="6" python -u ablation.py --config config/yelp.yml --runs 5 2>&1 | tee -a logs/train_yelp_ablation.log
 # CUDA_VISIBLE_DEVICES="6" python -u ablation.py --config config/tfinance.yml --runs 5 2>&1 | tee -a logs/train_tfinance_ablation.log
 
+#### A6.1: only aggregate dst
+echo "Ablation6.1: w/o homophily-aware aggregation"
+CUDA_VISIBLE_DEVICES="7" python -u ablation.py --config config/amazon.yml --runs 5 2>&1 | tee -a logs/train_amazon_ablation.log
+CUDA_VISIBLE_DEVICES="7" python -u ablation.py --config config/yelp.yml --runs 5 2>&1 | tee -a logs/train_yelp_ablation.log
+CUDA_VISIBLE_DEVICES="7" python -u ablation.py --config config/tfinance.yml --runs 5 2>&1 | tee -a logs/train_tfinance_ablation.log
+
 
 ### A7: w/o skip connection
 # echo "Ablation7: w/o skip connection"
@@ -71,10 +77,10 @@ cd ..
 
 
 #### A8: w homophily-aware aggregation
-echo "Ablation8: w homophily-aware aggregation"
-CUDA_VISIBLE_DEVICES="6" python -u ablation.py --config config/amazon.yml --runs 5 2>&1 | tee -a logs/train_amazon_ablation.log
-CUDA_VISIBLE_DEVICES="6" python -u ablation.py --config config/yelp.yml --runs 5 2>&1 | tee -a logs/train_yelp_ablation.log
-CUDA_VISIBLE_DEVICES="6" python -u ablation.py --config config/tfinance.yml --runs 5 2>&1 | tee -a logs/train_tfinance_ablation.log
+# echo "Ablation8: w homophily-aware aggregation"
+# CUDA_VISIBLE_DEVICES="6" python -u ablation.py --config config/amazon.yml --runs 5 2>&1 | tee -a logs/train_amazon_ablation.log
+# CUDA_VISIBLE_DEVICES="6" python -u ablation.py --config config/yelp.yml --runs 5 2>&1 | tee -a logs/train_yelp_ablation.log
+# CUDA_VISIBLE_DEVICES="6" python -u ablation.py --config config/tfinance.yml --runs 5 2>&1 | tee -a logs/train_tfinance_ablation.log
 
 
 

@@ -1,3 +1,9 @@
+### copied from models.py
+
+### Lines 34-37
+### Lines 
+
+
 from typing import Optional, Tuple, Union
 from typing import Optional, Tuple, Union
 import dgl
@@ -18,7 +24,7 @@ class CustomBatchNorm1d(nn.BatchNorm1d):
     
 
 class MySimpleConv_MR_test(nn.Module):
-    def __init__(self, in_feats: int, out_feats: int, e_types: list, drop_rate:float=0.0, 
+    def __init__(self, in_feats: int, out_feats: int, in_edge_feats: int, e_types: list, drop_rate:float=0.0, 
                  mlp3_dim: int=64, bn_type: int=0):
         super(MySimpleConv_MR_test, self).__init__()
         self.e_types = e_types
@@ -26,9 +32,14 @@ class MySimpleConv_MR_test(nn.Module):
         self.bn_type = bn_type
         self.multi_relation = len(self.e_types) > 1
         
+        self.proj_edges_in = nn.ModuleDict()
+        for e_t in self.e_types:
+            self.proj_edges_in[e_t] = build_mlp(in_edge_feats, in_feats, drop_rate, hid_dim=self.mlp3_dim)
+            # print(f"{e_t}, {in_edge_feats}, {in_feats}, {self.mlp3_dim}")
+
         self.proj_edges = nn.ModuleDict()
         for e_t in self.e_types:
-            self.proj_edges[e_t] = build_mlp(in_feats * 2, out_feats, drop_rate, hid_dim=self.mlp3_dim)
+            self.proj_edges[e_t] = build_mlp(in_feats * 3, out_feats, drop_rate, hid_dim=self.mlp3_dim)
         
         self.proj_out = CustomLinear(out_feats, out_feats, bias=True)
         if in_feats != out_feats:
@@ -44,9 +55,12 @@ class MySimpleConv_MR_test(nn.Module):
     def udf_edges(self, e_t: str):
         assert e_t in self.e_types, 'Invalid edge types!'
         tmp_fn = self.proj_edges[e_t]
+        tmp_fn_in = self.proj_edges_in[e_t]
             
         def fnc(edges):
-            msg = torch.cat([edges.src['h'], edges.dst['h']], dim=-1)
+            # print(f"{edges.src['h'].shape}, {edges.dst['h'].shape}, {edges.data['eh'].shape}")
+            eh = tmp_fn_in(edges.data['eh'])
+            msg = torch.cat([edges.src['h'], edges.dst['h'], eh], dim=-1)
             msg = tmp_fn(msg)
             return {'msg': msg}
         return fnc
@@ -81,7 +95,7 @@ class MySimpleConv_MR_test(nn.Module):
             return out
 
 class simpleGNN_MR(nn.Module):
-    def __init__(self, in_feats: int, hidden_feats: int, out_feats: int, num_layers: int, e_types: list,
+    def __init__(self, in_feats: int, hidden_feats: int, out_feats: int, in_edge_feats: int, num_layers: int, e_types: list,
                  input_drop: float, hidden_drop: float, mlp_drop: float, mlp12_dim: int, 
                  mlp3_dim: int, bn_type: int):
         super(simpleGNN_MR, self).__init__()
@@ -97,7 +111,7 @@ class simpleGNN_MR(nn.Module):
         
         self.proj_in = build_mlp(in_feats, hidden_feats, self.mlp_drop, hid_dim=self.mlp12_dim)
         in_feats = hidden_feats
-        
+
         self.in_bn = None
         if self.bn_type in [1, 3]:
             self.in_bn = CustomBatchNorm1d(hidden_feats)
@@ -106,7 +120,7 @@ class simpleGNN_MR(nn.Module):
             in_dim = in_feats if i==0 else hidden_feats
             
             self.gnn_list.append(
-                MySimpleConv_MR_test(in_feats=in_dim, out_feats=hidden_feats, 
+                MySimpleConv_MR_test(in_feats=in_dim, out_feats=hidden_feats, in_edge_feats=in_edge_feats,
                                 e_types=e_types, drop_rate=self.mlp_drop, 
                                 mlp3_dim=self.mlp3_dim, bn_type=self.bn_type))
             
@@ -129,6 +143,7 @@ class simpleGNN_MR(nn.Module):
         
         if self.in_bn is not None:
             h = self.in_bn(h, update_running_stats=update_bn)
+            
         
         inter_results.append(h[:final_num])
         for block, gnn, bn in zip(blocks, self.gnn_list, self.bn_list):
@@ -146,47 +161,4 @@ class simpleGNN_MR(nn.Module):
             h = h.reshape(h.shape[0], -1)
             h = self.proj_out(h)
             return h.log_softmax(dim=-1)
-        
-class SubgraphMLP(nn.Module):
-    def __init__(self, in_feats: int, hidden_feats: int, out_feats: int, num_layers: int, e_types: list,
-                 input_drop: float, hidden_drop: float, mlp_drop: float, mlp12_dim: int, 
-                 mlp3_dim: int, bn_type: int):
-        super(SubgraphMLP, self).__init__()
-        self.gnn_list = nn.ModuleList()
-        self.bn_list = nn.ModuleList()
-        self.num_layers = num_layers
-        self.input_drop = input_drop 
-        self.hidden_drop = hidden_drop
-        self.mlp_drop = mlp_drop
-        self.mlp12_dim = mlp12_dim
-        self.mlp3_dim = mlp3_dim
-        self.bn_type = bn_type
-        
-        self.proj_in = build_mlp(in_feats, hidden_feats, self.mlp_drop, hid_dim=self.mlp12_dim)
-        in_feats = hidden_feats
-        
-        self.in_bn = None
-        if self.bn_type in [1, 3]:
-            self.in_bn = CustomBatchNorm1d(hidden_feats)
-        
-        self.proj_out = build_mlp(hidden_feats, out_feats, self.mlp_drop, 
-                                  hid_dim=self.mlp12_dim, final_act=False)
-        
-        self.dropout = nn.Dropout(p=self.hidden_drop)
-        self.dropout_in = nn.Dropout(p=self.input_drop)
-        self.activation = F.selu
-        
-    def forward(self, h, targets, update_bn: bool=True): ## targets = dest node ids
-
-        h = self.dropout_in(h)
-    
-        h = self.proj_in(h)
-        
-        if self.in_bn is not None:
-            h = self.in_bn(h, update_running_stats=update_bn)
-
-        h = h.sum(0) ### subgraph embedding
-
-        h = self.proj_out(h)
-        return h.log_softmax(dim=-1)
         

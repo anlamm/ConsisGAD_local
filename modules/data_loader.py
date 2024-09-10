@@ -15,6 +15,7 @@ import os
 
 ##### 
 import pandas as pd
+import networkx as nx
 
     
 def get_dataset(name: str, raw_dir: str, to_homo: bool=False, random_state: int=717):
@@ -43,6 +44,12 @@ def get_dataset(name: str, raw_dir: str, to_homo: bool=False, random_state: int=
         # graph.ndata['label'] = graph.ndata['label'].argmax(1)
         graph.ndata['feature'] = graph.ndata['feature'].float()
 
+    elif name in ['weibo', 'reddit', 'tolokers', 'yelp', 'questions', 'elliptic',  'dgraphfin']:
+        data, _ = load_graphs(os.path.join(raw_dir, name))
+        graph = data[0]
+        # graph.ndata['label'] = graph.ndata['label'].argmax(1)
+        graph.ndata['feature'] = graph.ndata['feature'].float()
+
     else:
         raise
     
@@ -50,11 +57,18 @@ def get_dataset(name: str, raw_dir: str, to_homo: bool=False, random_state: int=
 
     
 def get_index_loader_test(name: str, batch_size: int, unlabel_ratio: int=1, training_ratio: float=-1,
-                             shuffle_train: bool=True, to_homo:bool=False, fill="zero", random_feature=False, verbose=False, load_offline=False, seed=None):
-    assert name in ['yelp', 'amazon', 'tfinance', 'tsocial', 'merge'], 'Invalid dataset name'
+                             shuffle_train: bool=True, to_homo:bool=False, fill="zero", random_feature=False, structural_feature=False, same_feature=False, cat_feature=False, verbose=False, load_offline=False, seed=None, add_edge_feature=False):
+    # assert name in ['yelp', 'amazon', 'tfinance', 'tsocial', 'merge'], 'Invalid dataset name'
 
     if load_offline:
         graph = load_graphs(os.path.join("data", "offline", f"{name}.dglgraph"))[0][0]
+        if structural_feature:
+            graph = load_graphs(os.path.join("data", "offline", f"{name}_added_embs.dglgraph"))[0][0]
+
+            if cat_feature:
+                graph.ndata['feature'] = torch.cat([graph.ndata['feature'], graph.ndata['deepwalk']], axis=1)  ### use deepwalk structural embeddings
+            else:
+                graph.ndata['feature'] = graph.ndata['deepwalk']  ### use deepwalk structural embeddings
 
         graph.ndata['train_mask'] = graph.ndata['train_masks'][:,seed]  ### Use pre-generated splits
         graph.ndata['val_mask'] = graph.ndata['val_masks'][:,seed]
@@ -73,6 +87,7 @@ def get_index_loader_test(name: str, batch_size: int, unlabel_ratio: int=1, trai
         unlabeled_nids = np.concatenate([valid_nids, test_nids, train_nids])
         
         power = 10 if name == 'tfinance' or name == 'merge' else 16
+        power = 4
         
         valid_loader = torch_dataloader(valid_nids, batch_size=2**power, shuffle=False, drop_last=False, num_workers=4)
         test_loader = torch_dataloader(test_nids, batch_size=2**power, shuffle=False, drop_last=False, num_workers=4)
@@ -84,7 +99,16 @@ def get_index_loader_test(name: str, batch_size: int, unlabel_ratio: int=1, trai
             # n, d = graph.ndata['feature'].shape
             # new_features = torch.randn(n, 32).float()
             # graph.ndata['feature'] = new_features
-            graph.ndata['feature'] = graph.ndata['random_feature']
+            if cat_feature:
+                graph.ndata['feature'] = torch.cat([graph.ndata['feature'], graph.ndata['random_feature']], axis=1)  ### use deepwalk structural embeddings
+            else:
+                graph.ndata['feature'] = graph.ndata['random_feature']
+        if same_feature:
+            if cat_feature:
+                graph.ndata['feature'] = torch.cat([graph.ndata['feature'], graph.ndata['same_feature']], axis=1)  ### use same feature for each node
+            else:
+                graph.ndata['feature'] = graph.ndata['same_feature']
+            
 
         if verbose:
             nnodes = graph.number_of_nodes()
@@ -108,6 +132,12 @@ def get_index_loader_test(name: str, batch_size: int, unlabel_ratio: int=1, trai
 
             return graph, labeled_loader, valid_loader, test_loaders, unlabeled_loader, labeled_loaders, valid_loaders
         
+
+        if add_edge_feature:
+            for et in graph.etypes:
+                graph.edges[et].data['eh'] = torch.ones(len(graph.edges(etype=et)[0]), 4)
+
+        graph = graph.long()
         return graph, labeled_loader, valid_loader, test_loader, unlabeled_loader
 
 
@@ -332,12 +362,15 @@ def get_index_loader_test(name: str, batch_size: int, unlabel_ratio: int=1, trai
 def offline_data_split(training_ratio, to_homo=False, nseeds=5, fill_mode="zero"): ### seeds: number of seeds
 
     root = "data"
+    root = "/home/yliumh/github/GADBench/datasets"
     outdir = f"{root}/offline"
+    outdir = f"data/offline"
     os.makedirs(outdir, exist_ok=True)
 
     #### single dataset
     print(f"================ Single dataset =================")
     datanames = ['yelp', 'amazon', 'tfinance']
+    datanames = ['weibo', 'reddit', 'tolokers', 'yelp', 'questions', 'elliptic',  'dgraphfin', 'tsocial']
 
     for name in datanames:
         graph = get_dataset(name, f'{root}/', to_homo=to_homo, random_state=7537) ## random_state not used
@@ -371,139 +404,215 @@ def offline_data_split(training_ratio, to_homo=False, nseeds=5, fill_mode="zero"
         new_features = torch.randn(n, 32).float()
         graph.ndata['random_feature'] = new_features
 
+        new_features = torch.ones(n, 32).float()
+        graph.ndata['same_feature'] = new_features
+
         print(f"{name}: {graph.ndata['train_masks'].sum(0)}\n {graph.ndata['val_masks'].sum(0)}\n {graph.ndata['test_masks'].sum(0)}")
         print(f"{name}: {graph.ndata['train_masks'].sum(0)*100.0/n}%\n {graph.ndata['val_masks'].sum(0)*100.0/n}%\n {graph.ndata['test_masks'].sum(0)*100.0/n}%")
     
         dgl.save_graphs(f"{outdir}/{name}.dglgraph", [graph])
 
 
-    #### merged dataset
-    print(f"================ Merged dataset =================")
-    graphs = []
+    # #### merged dataset
+    # print(f"================ Merged dataset =================")
+    # graphs = []
 
-    t_n = 0
-    for name in datanames:
-        graph = get_dataset(name, f'{root}/', to_homo=True, random_state=7537)
-        t_n += graph.num_nodes()
+    # t_n = 0
+    # for name in datanames:
+    #     graph = get_dataset(name, f'{root}/', to_homo=True, random_state=7537)
+    #     t_n += graph.num_nodes()
 
-    train_masks = torch.zeros(t_n, nseeds).bool()
-    val_masks = torch.zeros(t_n, nseeds).bool()
-    test_masks = torch.zeros(t_n, nseeds).bool()
+    # train_masks = torch.zeros(t_n, nseeds).bool()
+    # val_masks = torch.zeros(t_n, nseeds).bool()
+    # test_masks = torch.zeros(t_n, nseeds).bool()
 
-    c_n = 0
-    features_list = []
-    for n_idx, name in enumerate(datanames):
-        graph = get_dataset(name, f'{root}/', to_homo=True, random_state=7537)
-        index = np.arange(graph.num_nodes())
-        labels = graph.ndata['label']
-        if name == 'amazon':
-            index = np.arange(3305, graph.num_nodes())
-        index += c_n  ###### already have c_n nodes before this graph
-        c_n += graph.num_nodes()
-        graph.ndata['feature'] = graph.ndata['feature'].float()
-        graph.ndata['graph_id'] = torch.LongTensor([n_idx]).repeat(graph.number_of_nodes())
-        graph.ndata['number_of_nodes'] = torch.LongTensor([graph.number_of_nodes()]).repeat(graph.number_of_nodes())
-        features_list.append(graph.ndata['feature'])
-        graphs.append(graph)
+    # c_n = 0
+    # features_list = []
+    # for n_idx, name in enumerate(datanames):
+    #     graph = get_dataset(name, f'{root}/', to_homo=True, random_state=7537)
+    #     index = np.arange(graph.num_nodes())
+    #     labels = graph.ndata['label']
+    #     if name == 'amazon':
+    #         index = np.arange(3305, graph.num_nodes())
+    #     index += c_n  ###### already have c_n nodes before this graph
+    #     c_n += graph.num_nodes()
+    #     graph.ndata['feature'] = graph.ndata['feature'].float()
+    #     graph.ndata['graph_id'] = torch.LongTensor([n_idx]).repeat(graph.number_of_nodes())
+    #     graph.ndata['number_of_nodes'] = torch.LongTensor([graph.number_of_nodes()]).repeat(graph.number_of_nodes())
+    #     features_list.append(graph.ndata['feature'])
+    #     graphs.append(graph)
         
-        for seed in np.arange(nseeds):
-            train_nids, valid_test_nids = train_test_split(index, stratify=labels[index-c_n],
-                                                            train_size=training_ratio/100., random_state=seed, shuffle=True)
-            valid_nids, test_nids = train_test_split(valid_test_nids, stratify=labels[valid_test_nids-c_n],
-                                                        test_size=0.67, random_state=seed, shuffle=True)   
+    #     for seed in np.arange(nseeds):
+    #         train_nids, valid_test_nids = train_test_split(index, stratify=labels[index-c_n],
+    #                                                         train_size=training_ratio/100., random_state=seed, shuffle=True)
+    #         valid_nids, test_nids = train_test_split(valid_test_nids, stratify=labels[valid_test_nids-c_n],
+    #                                                     test_size=0.67, random_state=seed, shuffle=True)   
 
-            train_masks[train_nids, seed] = 1
-            val_masks[valid_nids, seed] = 1
-            test_masks[test_nids, seed] = 1
+    #         train_masks[train_nids, seed] = 1
+    #         val_masks[valid_nids, seed] = 1
+    #         test_masks[test_nids, seed] = 1
             
-    def diag_merge_features(features_list, fill_mode="zero"):
-        #### [feat_list1, feat_list2, feat_list3]
-        total_feat_dim = 0
-        for feat_tensor in features_list:
-            total_feat_dim += feat_tensor.shape[1]
+    # def diag_merge_features(features_list, fill_mode="zero"):
+    #     #### [feat_list1, feat_list2, feat_list3]
+    #     total_feat_dim = 0
+    #     for feat_tensor in features_list:
+    #         total_feat_dim += feat_tensor.shape[1]
 
-        c_d = 0
-        ret_features_list = []
-        for feat_tensor in features_list:
-            n, d = feat_tensor.shape
-            ret_feat = torch.zeros((n, total_feat_dim)).float()
-            ret_feat[:, c_d:c_d+d] = feat_tensor
-            c_d += d
+    #     c_d = 0
+    #     ret_features_list = []
+    #     for feat_tensor in features_list:
+    #         n, d = feat_tensor.shape
+    #         ret_feat = torch.zeros((n, total_feat_dim)).float()
+    #         ret_feat[:, c_d:c_d+d] = feat_tensor
+    #         c_d += d
 
-            ret_features_list.append(ret_feat)
+    #         ret_features_list.append(ret_feat)
 
-        assert fill_mode in ["zero", "mean"]
-        if fill_mode == "mean":
-            means = []
-            for ret_feat in ret_features_list:
-                means.append(ret_feat.mean(0))
-            for i in range(len(ret_features_list)):
-                for j in range(len(ret_features_list)):
-                    if j == i:
-                        continue
-                    ret_features_list[i] += means[j].repeat(ret_features_list[i].shape[0], 1)
+    #     assert fill_mode in ["zero", "mean"]
+    #     if fill_mode == "mean":
+    #         means = []
+    #         for ret_feat in ret_features_list:
+    #             means.append(ret_feat.mean(0))
+    #         for i in range(len(ret_features_list)):
+    #             for j in range(len(ret_features_list)):
+    #                 if j == i:
+    #                     continue
+    #                 ret_features_list[i] += means[j].repeat(ret_features_list[i].shape[0], 1)
 
-        return ret_features_list
+    #     return ret_features_list
 
 
-    features = diag_merge_features(features_list, fill_mode=fill_mode)
-    for i in range(len(graphs)):
-        graphs[i].ndata['feature'] = features[i]
+    # features = diag_merge_features(features_list, fill_mode=fill_mode)
+    # for i in range(len(graphs)):
+    #     graphs[i].ndata['feature'] = features[i]
 
-    ####### Before dgl.batch to merge graphs, make sure only exists two ndata: feature and label, and NO edata
-    for i in range(len(graphs)):
-        graph = graphs[i]
-        ndata_keys = list(graph.ndata.keys())
-        for key in ndata_keys:
-            if key not in ['feature', 'label', 'graph_id', 'number_of_nodes']:
-                graph.ndata.pop(key)
+    # ####### Before dgl.batch to merge graphs, make sure only exists two ndata: feature and label, and NO edata
+    # for i in range(len(graphs)):
+    #     graph = graphs[i]
+    #     ndata_keys = list(graph.ndata.keys())
+    #     for key in ndata_keys:
+    #         if key not in ['feature', 'label', 'graph_id', 'number_of_nodes']:
+    #             graph.ndata.pop(key)
             
-        edata_keys = list(graph.edata.keys())
-        for key in edata_keys:
-            graph.edata.pop(key)
+    #     edata_keys = list(graph.edata.keys())
+    #     for key in edata_keys:
+    #         graph.edata.pop(key)
             
-        graphs[i] = graph
+    #     graphs[i] = graph
         
-    ####### Merge different graphs
-    graph = dgl.batch(graphs)
+    # ####### Merge different graphs
+    # graph = dgl.batch(graphs)
         
 
-    graph.ndata['train_masks'] = train_masks
-    graph.ndata['val_masks'] = val_masks
-    graph.ndata['test_masks'] = test_masks
+    # graph.ndata['train_masks'] = train_masks
+    # graph.ndata['val_masks'] = val_masks
+    # graph.ndata['test_masks'] = test_masks
 
 
-    n, d = graph.ndata['feature'].shape
-    new_features = torch.randn(n, 32).float()
-    graph.ndata['random_feature'] = new_features
+    # n, d = graph.ndata['feature'].shape
+    # new_features = torch.randn(n, 32).float()
+    # graph.ndata['random_feature'] = new_features
 
-    print(f"merge: {graph.ndata['train_masks'].sum(0)}\n {graph.ndata['val_masks'].sum(0)}\n {graph.ndata['test_masks'].sum(0)}")
-    print(f"merge: {graph.ndata['train_masks'].sum(0)*100.0/n}%\n {graph.ndata['val_masks'].sum(0)*100.0/n}%\n {graph.ndata['test_masks'].sum(0)*100.0/n}%")
+    # new_features = torch.ones(n, 32).float()
+    # graph.ndata['same_feature'] = new_features
+
+    # print(f"merge: {graph.ndata['train_masks'].sum(0)}\n {graph.ndata['val_masks'].sum(0)}\n {graph.ndata['test_masks'].sum(0)}")
+    # print(f"merge: {graph.ndata['train_masks'].sum(0)*100.0/n}%\n {graph.ndata['val_masks'].sum(0)*100.0/n}%\n {graph.ndata['test_masks'].sum(0)*100.0/n}%")
     
-    dgl.save_graphs(f"{outdir}/merge.dglgraph", [graph])
+    # dgl.save_graphs(f"{outdir}/merge.dglgraph", [graph])
     
-    #### check train/val/test splits
-    subgraph_idx = graph.ndata['graph_id']
-    subgraph_nnodes = graph.ndata['number_of_nodes']
-    train_masks = graph.ndata['train_masks']
-    val_masks = graph.ndata['val_masks']
-    test_masks = graph.ndata['test_masks']
-    for n_idx, name in enumerate(datanames):
-        node_idx = torch.nonzero(torch.where(subgraph_idx == n_idx, 1, 0), as_tuple=True)[0]
-        nnodes = subgraph_nnodes[node_idx]
-        assert torch.unique(nnodes).shape[0] == 1
-        nnodes = nnodes[0]
+    # #### check train/val/test splits
+    # subgraph_idx = graph.ndata['graph_id']
+    # subgraph_nnodes = graph.ndata['number_of_nodes']
+    # train_masks = graph.ndata['train_masks']
+    # val_masks = graph.ndata['val_masks']
+    # test_masks = graph.ndata['test_masks']
+    # for n_idx, name in enumerate(datanames):
+    #     node_idx = torch.nonzero(torch.where(subgraph_idx == n_idx, 1, 0), as_tuple=True)[0]
+    #     nnodes = subgraph_nnodes[node_idx]
+    #     assert torch.unique(nnodes).shape[0] == 1
+    #     nnodes = nnodes[0]
 
-        print(f"{name}: #Train: {train_masks[node_idx].sum(0)}, #Val: {val_masks[node_idx].sum(0)}, #Test: {test_masks[node_idx].sum(0)}")
-        print(f"{name}: #Train: {train_masks[node_idx].sum(0)*100.0/nnodes}%, #Val: {val_masks[node_idx].sum(0)*100.0/nnodes}%, #Test: {test_masks[node_idx].sum(0)*100.0/nnodes}%")
-
-
+    #     print(f"{name}: #Train: {train_masks[node_idx].sum(0)}, #Val: {val_masks[node_idx].sum(0)}, #Test: {test_masks[node_idx].sum(0)}")
+    #     print(f"{name}: #Train: {train_masks[node_idx].sum(0)*100.0/nnodes}%, #Val: {val_masks[node_idx].sum(0)*100.0/nnodes}%, #Test: {test_masks[node_idx].sum(0)*100.0/nnodes}%")
 
 
+class OnlineLCLoader(torch_dataloader):
+    def __init__(self, root_nodes, graph, feats, labels=None, drop_edge_rate=0, **kwargs):
+        self.graph = graph
+        self.labels = labels
+        self._drop_edge_rate = drop_edge_rate
+        self.ego_graph_nodes = root_nodes
+        self.feats = feats
+        self.device = self.graph.device
 
-def dglgraph2CSV():
+        dataset = np.arange(len(root_nodes))
+        kwargs["collate_fn"] = self.__collate_fn__
+        super().__init__(dataset, **kwargs)
+
+    def __collate_fn__(self, batch_idx):
+        ego_nodes = [self.ego_graph_nodes[i] for i in batch_idx]
+        subgs = [self.graph.subgraph(torch.LongTensor(ego_nodes[i]).to(self.device), relabel_nodes=True) for i in range(len(ego_nodes))]
+        sg = dgl.batch(subgs)
+
+        nodes = torch.from_numpy(np.concatenate(ego_nodes)).long().to(self.device)
+        num_nodes = [x.shape[0] for x in ego_nodes]
+        num_nodes = torch.LongTensor([0] + num_nodes).to(self.device)
+        # cum_num_nodes = np.cumsum([0] + num_nodes)[:-1]
+
+        # sg = sg.remove_self_loop().add_self_loop()
+        sg.ndata["feat"] = self.feats[nodes]
+        # targets = torch.from_numpy(cum_num_nodes)
+        targets = torch.cumsum(num_nodes, dim=0)[:-1]
+        
+        # return sg, targets, label, nodes
+        return sg, targets
+
+def load_ego_graphs(name, seed, size=256):
+    path = f"data/offline/subgraphs/{name}.dglgraph-lc-ego-graphs-{size}-{seed}.pt"
+    nodes = torch.load(path)
     
-    root = "data"
+    return nodes
+
+def setup_training_dataloder(loader_type, training_nodes, graph, feats, batch_size, drop_edge_rate=0, pretrain_clustergcn=False, cluster_iter_data=None):
+    num_workers = 0
+
+    if loader_type == "lc":
+        assert training_nodes is not None
+    else:
+        raise NotImplementedError(f"{loader_type} is not implemented yet")
+    
+    # print(" -------- drop edge rate: {} --------".format(drop_edge_rate))
+    dataloader = OnlineLCLoader(training_nodes, graph, feats=feats, drop_edge_rate=drop_edge_rate, batch_size=batch_size, shuffle=True, drop_last=True, persistent_workers=False, num_workers=num_workers)
+    return dataloader
+
+
+def setup_eval_dataloder(loader_type, graph, feats, ego_graph_nodes=None, batch_size=128, shuffle=False):
+    num_workers = 0
+    if loader_type == "lc":
+        assert ego_graph_nodes is not None
+    else:
+        raise NotImplementedError(f"{loader_type} is not implemented yet")
+
+    dataloader = OnlineLCLoader(ego_graph_nodes, graph, feats, batch_size=2**8, shuffle=shuffle, drop_last=False, persistent_workers=False, num_workers=num_workers)
+    return dataloader
+
+
+def get_dataset_offline(name: str, raw_dir: str, to_homo: bool=False, random_state: int=717):
+    print(f'Loading graph from {os.path.join(raw_dir, name)}')
+    data, _ = load_graphs(os.path.join(raw_dir, name))
+    graph = data[0]
+    if to_homo:
+        graph = dgl.to_homogeneous(graph, ndata=list(graph.ndata.keys()))
+        graph = dgl.add_self_loop(graph)
+    # graph.ndata['label'] = graph.ndata['label'].argmax(1)
+    graph.ndata['feature'] = graph.ndata['feature'].float()
+    return graph
+
+def dglgraph2CSV(nnodes=None, nhop=None):
+    
+    root = "data/offline/addfailure"
+    # root = "/home/yliumh/github/GADBench/datasets"
     outdir = f"{root}/CSV"
     os.makedirs(outdir, exist_ok=True)
 
@@ -514,7 +623,28 @@ def dglgraph2CSV():
     for name in datanames:
         print(f"{name}")
 
-        graph = get_dataset(name, f'{root}/', to_homo=False, random_state=7537) ## random_state not used
+        # graph = get_dataset(name, f'{root}/', to_homo=True, random_state=7537) ## random_state not used
+        graph = get_dataset_offline(f'{name}_added_failure.dglgraph', f'{root}/', to_homo=True, random_state=7537) ## random_state not used
+        print(list(graph.ndata.keys()))
+
+        if nhop is not None:
+            labels = graph.ndata['label']
+            pos_idx = labels.nonzero(as_tuple=True)[0]
+
+            if nhop > 0:
+                sampler = dgl.dataloading.MultiLayerFullNeighborSampler(nhop)
+                input_nodes, output_nodes, blocks = sampler.sample_blocks(graph, pos_idx)
+
+                edgeids = []
+                for block in blocks:
+                    bg = dgl.block_to_graph(block)
+                    edgeids += bg.edata[dgl.EID]
+                edgeids = torch.unique(torch.LongTensor(edgeids))
+                graph = dgl.edge_subgraph(graph, edgeids)
+            elif nhop == 0:
+                graph = dgl.node_subgraph(graph, pos_idx)
+
+
         n = graph.number_of_nodes()
         graph.ndata['feature'] = graph.ndata['feature'].float()
 
@@ -522,16 +652,29 @@ def dglgraph2CSV():
         node_dict = {
             "nodeId": torch.arange(graph.number_of_nodes(), dtype=int).tolist(),
             "label": graph.ndata['label'].tolist(),
+            "failure": graph.ndata['failure_ConsisGNN'].tolist(),
         }
-
         features = graph.ndata['feature']
+
+        if nnodes is not None:
+            node_dict['nodeId'] = node_dict['nodeId'][:nnodes]
+            node_dict['label'] = node_dict['label'][:nnodes]
+            node_dict['failure'] = node_dict['failure'][:nnodes]
+            features = features[:nnodes]
+
         n, d = features.shape
 
         for dd in range(d):
             node_dict[f'feature_{dd}'] = features[:, dd]
 
+        print(f'#Nodes: {len(node_dict["nodeId"])}')
         node_df = pd.DataFrame(node_dict, columns=list(node_dict.keys()))
-        node_df.to_csv(f"{outdir}/{name}_node.csv", index=False)
+        if nnodes is not None:
+            node_df.to_csv(f"{outdir}/{name}_node_{nnodes}.csv", index=False)
+        elif nhop is not None:
+            node_df.to_csv(f"{outdir}/{name}_node_{nhop}hop.csv", index=False)
+        else:
+            node_df.to_csv(f"{outdir}/{name}_node.csv", index=False)
 
         ##### Edges csv
         edge_dict = {
@@ -546,19 +689,90 @@ def dglgraph2CSV():
             srcnodes = edges[0]
             dstnodes = edges[1]
 
+            if nnodes is not None:
+                mask1 = srcnodes < nnodes
+                mask2 = dstnodes < nnodes
+                mask = mask1 * mask2
+                srcnodes = srcnodes[mask]
+                dstnodes = dstnodes[mask]
+
             edge_dict['srcnodes'] += srcnodes.tolist()
             edge_dict['dstnodes'] += dstnodes.tolist()
             edge_dict['etype'] += [etype] * len(srcnodes)
+        edge_dict['edgeId'] = torch.arange(len(edge_dict['srcnodes']), dtype=int).tolist()
 
+        print(f'#Edges: {len(edge_dict["edgeId"])}')
         edge_df = pd.DataFrame(edge_dict, columns=list(edge_dict.keys()))
-        edge_df.to_csv(f"{outdir}/{name}_edge.csv", index=False)
+        if nnodes is not None:
+            edge_df.to_csv(f"{outdir}/{name}_edge_{nnodes}.csv", index=False)
+        elif nhop is not None:
+            edge_df.to_csv(f"{outdir}/{name}_edge_{nhop}hop.csv", index=False)
+        else:
+            edge_df.to_csv(f"{outdir}/{name}_edge.csv", index=False)
 
 
 
 
+def dglgraph2edgelist():
+    root = "data"
+    outdir = f"{root}/offline"
+    os.makedirs(outdir, exist_ok=True)
 
 
-    pass
+    datanames = ['yelp', 'amazon', 'tfinance', 'merge']
+
+    for name in datanames:
+        print(f'Data: {name}')
+
+        dglgraph = load_graphs(os.path.join("data", "offline", f"{name}.dglgraph"))[0][0]
+        print(f'#Nodes: {dglgraph.num_nodes()}, #Edges: {dglgraph.num_edges()}')
+
+        with open(f'{outdir}/{name}.edgelist', 'w') as f:
+            for etype in dglgraph.etypes:
+                edges = dglgraph.edges(etype=etype)
+                srcnodes = edges[0]
+                dstnodes = edges[1]
+
+                for i in range(len(srcnodes)):
+                    u, v = srcnodes[i], dstnodes[i]
+                    f.write(f'{u} {v}\n')
+
+        print(f'Edgelist write into {outdir}/{name}.edgelist')
+
+
+def addEmbedding2DGLGraph():
+    root = "data"
+    outdir = f"{root}/offline"
+    os.makedirs(outdir, exist_ok=True)
+
+
+    datanames = ['yelp', 'amazon', 'tfinance', 'merge']
+
+    for name in datanames:
+        print(f'Data: {name}')
+
+        dglgraph = load_graphs(os.path.join("data", "offline", f"{name}.dglgraph"))[0][0]
+        print(f'#Nodes: {dglgraph.num_nodes()}, #Edges: {dglgraph.num_edges()}')
+        n, m = dglgraph.num_nodes(), dglgraph.num_edges()
+
+        ### Load deepwalk embedding
+        embs = np.zeros((n, 64), dtype=float)
+        with open(f'{outdir}/deepwalk/{name}.deepwalk', 'r') as f:
+            lines = f.readlines()[1:]
+            # assert len(lines) == n
+        for line in lines:
+            line = line.split(' ')
+            nodeid = int(line[0])
+            line = line[1:]
+            line = [float(x) for x in line]
+            embs[nodeid] = line
+        embs = torch.FloatTensor(embs)
+        dglgraph.ndata['deepwalk'] = embs
+
+        dgl.save_graphs(f"{outdir}/{name}_added_embs.dglgraph", [dglgraph])
+
+    print(f'========= Merge Graphs ===========')
+
 
 
 
@@ -568,11 +782,21 @@ if __name__ == "__main__":
 
     #### Offline data splitting
 
-    # offline_data_split(1, to_homo=False, nseeds=5, fill_mode="zero")
+    offline_data_split(1, to_homo=False, nseeds=5, fill_mode="zero")
 
     #### DGLGraph to CSV
-    dglgraph2CSV()
+    # dglgraph2CSV(nnodes=100)
+    # nhops = [0,1,2]
+    # for nhop in nhops:
+    #     print(f"nhop={nhop}")
+    #     dglgraph2CSV(nhop=nhop)
 
+    #### DGLGraph to edgelist
+    # dglgraph2edgelist()
+
+
+    #### Add pre-generated structral embeddings into DGLGraph
+    # addEmbedding2DGLGraph()
     pass
 
     
