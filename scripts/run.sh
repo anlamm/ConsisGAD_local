@@ -95,25 +95,25 @@ cd ..
 
 
 #### 
-for DATASET in weibo reddit tolokers amazon tfinance yelp questions elliptic
-do
-CUDA_VISIBLE_DEVICES="5" python -u baseline.py --config config/$DATASET.yml --runs 5 2>&1 | tee logs/train_$DATASET.log
-done
+# for DATASET in weibo reddit tolokers amazon tfinance yelp questions elliptic
+# do
+# CUDA_VISIBLE_DEVICES="5" python -u baseline.py --config config/$DATASET.yml --runs 5 2>&1 | tee -a logs/train_$DATASET.log
+# done
 
-for DATASET in weibo reddit tolokers amazon tfinance yelp questions elliptic
-do
-CUDA_VISIBLE_DEVICES="5" python -u baseline.py --config config/$DATASET.yml --runs 5 --drop_edges 2>&1 | tee -a logs/train_$DATASET.log
-done
+# for DATASET in weibo reddit tolokers amazon tfinance yelp questions elliptic
+# do
+# CUDA_VISIBLE_DEVICES="5" python -u baseline.py --config config/$DATASET.yml --runs 5 --drop_edges 2>&1 | tee -a logs/train_$DATASET.log
+# done
 
-for DATASET in dgraphfin tsocial
-do
-CUDA_VISIBLE_DEVICES="5" python -u baseline.py --config config/$DATASET.yml --runs 5 2>&1 | tee logs/train_$DATASET.log
-done
+# for DATASET in dgraphfin tsocial
+# do
+# CUDA_VISIBLE_DEVICES="5" python -u baseline.py --config config/$DATASET.yml --runs 5 2>&1 | tee -a logs/train_$DATASET.log
+# done
 
-for DATASET in dgraphfin tsocial
-do
-CUDA_VISIBLE_DEVICES="5" python -u baseline.py --config config/$DATASET.yml --runs 5 --drop_edges 2>&1 | tee -a logs/train_$DATASET.log
-done
+# for DATASET in dgraphfin tsocial
+# do
+# CUDA_VISIBLE_DEVICES="5" python -u baseline.py --config config/$DATASET.yml --runs 5 --drop_edges 2>&1 | tee -a logs/train_$DATASET.log
+# done
 
 
 
@@ -126,6 +126,7 @@ done
 # CUDA_VISIBLE_DEVICES="5" python -u baseline.py --config config/yelp.yml --runs 5 --random_feature 
 # CUDA_VISIBLE_DEVICES="5" python -u baseline.py --config config/tfinance.yml --runs 5 --random_feature 
 # CUDA_VISIBLE_DEVICES="5" CUDA_LAUNCH_BLOCKING=1 python -u baseline.py --config config/weibo.yml --runs 1 
+CUDA_VISIBLE_DEVICES="5" python -u baseline.py --config config/weibo.yml --runs 1
 
 
 cd -

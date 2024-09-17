@@ -72,7 +72,6 @@ class MySimpleConv_MR_test(nn.Module):
             etype_dict = {}
             for e_t in g.etypes:
                 etype_dict[e_t] = (fn.copy_e('msg', 'msg'), fn.sum('msg', 'out'))
-                # etype_dict[e_t] = (fn.copy_e('msg', 'msg'), fn.mean('msg', 'out'))
             g.multi_update_all(etype_dict=etype_dict, cross_reducer='stack')
             
             out = g.dstdata.pop('out')
@@ -84,7 +83,7 @@ class MySimpleConv_MR_test(nn.Module):
 class simpleGNN_MR(nn.Module):
     def __init__(self, in_feats: int, hidden_feats: int, out_feats: int, num_layers: int, e_types: list,
                  input_drop: float, hidden_drop: float, mlp_drop: float, mlp12_dim: int, 
-                 mlp3_dim: int, bn_type: int):
+                 mlp3_dim: int, bn_type: int, pe_dim: int = -1):
         super(simpleGNN_MR, self).__init__()
         self.gnn_list = nn.ModuleList()
         self.bn_list = nn.ModuleList()
@@ -95,6 +94,7 @@ class simpleGNN_MR(nn.Module):
         self.mlp12_dim = mlp12_dim
         self.mlp3_dim = mlp3_dim
         self.bn_type = bn_type
+        self.pe_dim = pe_dim
         
         self.proj_in = build_mlp(in_feats, hidden_feats, self.mlp_drop, hid_dim=self.mlp12_dim)
         in_feats = hidden_feats
@@ -113,32 +113,54 @@ class simpleGNN_MR(nn.Module):
             
             self.bn_list.append(CustomBatchNorm1d(hidden_feats))
         
-        self.proj_out = build_mlp(hidden_feats*(num_layers+1), out_feats, self.mlp_drop, 
+        self.proj_out = build_mlp(hidden_feats*(num_layers*2+1), out_feats, self.mlp_drop, 
                                   hid_dim=self.mlp12_dim, final_act=False)
         
         self.dropout = nn.Dropout(p=self.hidden_drop)
         self.dropout_in = nn.Dropout(p=self.input_drop)
         self.activation = F.selu
         
-    def forward(self, blocks: list, update_bn: bool=True, return_logits: bool=False):
+        if pe_dim > 0:
+            self.proj_pe_in = build_mlp(pe_dim, pe_dim, self.mlp_drop, hid_dim=self.mlp12_dim)
+            self.proj_in = build_mlp(in_feats, hidden_feats-pe_dim, self.mlp_drop, hid_dim=self.mlp12_dim)
+        
+    def forward(self, blocks: list, rw_graph, update_bn: bool=True, return_logits: bool=False):
         final_num = blocks[-1].num_dst_nodes()
         h = blocks[0].srcdata['feature']
         h = self.dropout_in(h)
+
+        rw_h = rw_graph.srcdata['feature']
+        rw_h = self.dropout_in(rw_h)
         
         inter_results = []
         h = self.proj_in(h)
+
+        rw_h = self.proj_in(rw_h)
+
+        if self.pe_dim > 0:
+            peh = blocks[0].srcdata['rwse']
+            peh = self.proj_pe_in(peh)
+            h = torch.stack([h, peh], dim=1)
+            h = h.reshape(h.shape[0], -1)
         
         if self.in_bn is not None:
             h = self.in_bn(h, update_running_stats=update_bn)
+            rw_h = self.in_bn(rw_h, update_running_stats=update_bn)
         
-        inter_results.append(h[:final_num])
+        inter_results.append(h[:final_num]) ### h and rw_h are the same, so only append once
         for block, gnn, bn in zip(blocks, self.gnn_list, self.bn_list):
             h = gnn(block, h, update_bn)
             h = bn(h, update_running_stats=update_bn)
             h = self.activation(h) 
             h = self.dropout(h)
-            
+
+            rw_h = gnn(rw_graph, rw_h, update_bn)
+            rw_h = bn(rw_h, update_running_stats=update_bn)
+            rw_h = self.activation(rw_h) 
+            rw_h = self.dropout(rw_h)
+
             inter_results.append(h[:final_num])
+            inter_results.append(rw_h[:final_num])
         
         if return_logits:
             return inter_results
@@ -147,47 +169,5 @@ class simpleGNN_MR(nn.Module):
             h = h.reshape(h.shape[0], -1)
             h = self.proj_out(h)
             return h.log_softmax(dim=-1)
-        
-class SubgraphMLP(nn.Module):
-    def __init__(self, in_feats: int, hidden_feats: int, out_feats: int, num_layers: int, e_types: list,
-                 input_drop: float, hidden_drop: float, mlp_drop: float, mlp12_dim: int, 
-                 mlp3_dim: int, bn_type: int):
-        super(SubgraphMLP, self).__init__()
-        self.gnn_list = nn.ModuleList()
-        self.bn_list = nn.ModuleList()
-        self.num_layers = num_layers
-        self.input_drop = input_drop 
-        self.hidden_drop = hidden_drop
-        self.mlp_drop = mlp_drop
-        self.mlp12_dim = mlp12_dim
-        self.mlp3_dim = mlp3_dim
-        self.bn_type = bn_type
-        
-        self.proj_in = build_mlp(in_feats, hidden_feats, self.mlp_drop, hid_dim=self.mlp12_dim)
-        in_feats = hidden_feats
-        
-        self.in_bn = None
-        if self.bn_type in [1, 3]:
-            self.in_bn = CustomBatchNorm1d(hidden_feats)
-        
-        self.proj_out = build_mlp(hidden_feats, out_feats, self.mlp_drop, 
-                                  hid_dim=self.mlp12_dim, final_act=False)
-        
-        self.dropout = nn.Dropout(p=self.hidden_drop)
-        self.dropout_in = nn.Dropout(p=self.input_drop)
-        self.activation = F.selu
-        
-    def forward(self, h, targets, update_bn: bool=True): ## targets = dest node ids
 
-        h = self.dropout_in(h)
-    
-        h = self.proj_in(h)
-        
-        if self.in_bn is not None:
-            h = self.in_bn(h, update_running_stats=update_bn)
-
-        h = h.sum(0) ### subgraph embedding
-
-        h = self.proj_out(h)
-        return h.log_softmax(dim=-1)
         

@@ -50,3 +50,28 @@ def fixed_augmentation(graph, seed_nodes, sampler, aug_type: str, p: float=None)
             
         return input_nodes, output_nodes, blocks
 
+class RandomWalkSampler(dgl.dataloading.Sampler):
+    def __init__(self, fanout : int, walk_length: int):
+        super().__init__() 
+        self.fanout = fanout  ### num of walk for each node
+        self.walk_length = walk_length ### length of walk for each node
+
+    def sample(self, g, seed_nodes):
+        #### g: homogeneous graph
+        seed_nodes = torch.LongTensor(seed_nodes)
+        seed_nodes = seed_nodes.tile(self.fanout)
+        rw, _ = dgl.sampling.random_walk(g, seed_nodes, length=self.walk_length)
+        
+
+        srcnodes = rw[:, -1]
+        dstnodes = rw[:, 0]
+
+        subg = dgl.graph((srcnodes, dstnodes))
+        n, m = subg.number_of_nodes(), subg.number_of_edges()
+        d = g.ndata['feature'].shape[1]
+        subg.ndata['feature'] = torch.zeros(n, d)
+        subg.ndata['feature'][srcnodes] = g.ndata['feature'][srcnodes]
+        subg.ndata['feature'][dstnodes] = g.ndata['feature'][dstnodes]
+
+        subg = dgl.to_block(subg, seed_nodes)
+        return subg

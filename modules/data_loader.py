@@ -774,7 +774,33 @@ def addEmbedding2DGLGraph():
     print(f'========= Merge Graphs ===========')
 
 
+def addPE2DGLGraph():
+    root = "data"
+    outdir = f"{root}/offline"
+    os.makedirs(outdir, exist_ok=True)
 
+
+    # datanames = ['yelp', 'amazon', 'tfinance', 'merge']
+    datanames = ['weibo', 'reddit', 'tolokers', 'yelp', 'questions', 'elliptic',  'dgraphfin', 'tsocial']
+
+    for name in datanames:
+        print(f'Data: {name}')
+
+        dglgraph = load_graphs(os.path.join("data", "offline", f"{name}.dglgraph"))[0][0]
+        homograph = dgl.to_homogeneous(dglgraph, ndata=None)
+        homograph = dgl.remove_self_loop(homograph)
+        print(f'#Nodes: {homograph.num_nodes()}, #Edges: {homograph.num_edges()}')
+        n, m = homograph.num_nodes(), homograph.num_edges()
+
+        rwse = dgl.random_walk_pe(homograph, 2)
+        lapse = dgl.laplacian_pe(homograph, 2)
+
+        dglgraph.ndata['rwse'] = torch.FloatTensor(rwse)
+        dglgraph.ndata['lapse'] = torch.FloatTensor(lapse)
+        
+        dgl.save_graphs(f"{outdir}/{name}_added_pe.dglgraph", [dglgraph])
+
+    print(f'========= Merge Graphs ===========')
 
 
 
@@ -782,7 +808,7 @@ if __name__ == "__main__":
 
     #### Offline data splitting
 
-    offline_data_split(1, to_homo=False, nseeds=5, fill_mode="zero")
+    # offline_data_split(1, to_homo=False, nseeds=5, fill_mode="zero")
 
     #### DGLGraph to CSV
     # dglgraph2CSV(nnodes=100)
@@ -797,6 +823,10 @@ if __name__ == "__main__":
 
     #### Add pre-generated structral embeddings into DGLGraph
     # addEmbedding2DGLGraph()
+
+
+    #### Add positional encodings into DGLGraph
+    addPE2DGLGraph()
     pass
 
     
