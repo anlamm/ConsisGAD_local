@@ -297,11 +297,12 @@ def subgraph_classification_train_epoch(epoch, model, loss_func, graph, label_lo
         print(f"Epoch {epoch+1}/{args['epochs']}, loss: {np.mean(losses)}")
 
 
-def get_model_pred(model, graph, data_loader, sampler, args):
+def get_model_pred(model, graph, data_loader, sampler, args, return_logits=False):
     model.eval()
     
     pred_list = []
     target_list = []
+    emb_list = []
     with torch.no_grad():
         for node_idx in data_loader:
             if args['ego']:
@@ -311,7 +312,14 @@ def get_model_pred(model, graph, data_loader, sampler, args):
             else:
                 _, _, blocks = sampler.sample_blocks(graph, node_idx.to(args['device']))
             
-            pred = model(blocks)
+            
+            if return_logits:
+                emb = model(blocks, return_logits=True)
+                emb = torch.stack(emb, dim=1)
+                emb = emb.reshape(emb.shape[0], -1)
+                emb_list.append(emb)
+
+            pred = model(blocks)  
             target = blocks[-1].dstdata['label']
             
             pred_list.append(pred.detach())
@@ -320,6 +328,9 @@ def get_model_pred(model, graph, data_loader, sampler, args):
         target_list = torch.cat(target_list, dim=0)
         pred_list = pred_list.exp()[:, 1]
         
+        if return_logits:
+            emb_list = torch.cat(emb_list, dim=0)
+            return pred_list, target_list, emb_list
     return pred_list, target_list
 
 
@@ -484,11 +495,13 @@ def run_inference(args):
     augmentor = (sampler, attn_drop, ad_optim)
 
     my_model.eval()
-    test_pred, test_target = get_model_pred(my_model, graph, test_loader, sampler, args)
+    test_pred, test_target, test_emb = get_model_pred(my_model, graph, test_loader, sampler, args, return_logits=True)
     test_pred = test_pred.cpu()
     test_target = test_target.cpu()
     guessed_target = torch.zeros_like(test_target)
     guessed_target[test_pred > args['thres']] = 1
+
+    print(f'shapes: {guessed_target.shape} {test_target.shape} {test_emb.shape}')
 
     nodeids = []
     for batch_idx in test_loader:
@@ -498,14 +511,18 @@ def run_inference(args):
 
     nodeids = nodeids[torch.nonzero(guessed_target == 1, as_tuple=True)[0]]
     subgraph = dgl.node_subgraph(graph, nodeids.to(graph.device), relabel_nodes=True)
+    test_emb = test_emb[torch.nonzero(guessed_target == 1, as_tuple=True)[0]]
 
 
     from networkx.algorithms.community.label_propagation import label_propagation_communities
     from networkx.algorithms.community.louvain import louvain_communities
+    from sklearn.cluster import KMeans, SpectralClustering as SC
 
     community_detection_algos = {
         'LP': label_propagation_communities,
         'Louvain': louvain_communities,
+        'KMeans': KMeans,
+        'Spectral': SC,
     }
 
 
@@ -535,6 +552,14 @@ def run_inference(args):
             for comm, nodeids in enumerate(ret):
                 for nodeid in nodeids:
                     node2comm[nodeid] = comm
+        elif algo_name == 'KMeans' or algo_name == 'Spectral':
+            n_classes = 5
+            clustering = func(n_clusters=n_classes)
+            ret = clustering.fit_predict(test_emb.cpu().numpy())
+
+            node2comm = {}
+            for nodeid, comm in enumerate(ret):
+                node2comm[nodeid] = comm
         else:
             raise NotImplementedError(f'Unknown community detection algorithm: {algo_name}')
         
@@ -542,6 +567,7 @@ def run_inference(args):
 
     node2comm = community_detection_warper(args['comm_algo'], subgraph)
 
+    print(len(nodeids), len(node2comm))
     df = pd.DataFrame({'nodeIds': nodeids, 'Community ID': list(node2comm.values())}, columns = ['nodeIds', 'Community ID'])
     df.to_csv('black_communities.csv', index=False)
 
@@ -579,7 +605,7 @@ if __name__ == '__main__':
     parser.add_argument('--num_layers', type=int, default=1)
 
     parser.add_argument('--thres', type=float, default=0.5, help=">thres are predicted as black users")
-    parser.add_argument('--comm_algo', type=str, default='LP', choices=['LP', 'Louvain'], help='Algorithm to detect communities')
+    parser.add_argument('--comm_algo', type=str, default='LP', choices=['LP', 'Louvain', 'KMeans', 'Spectral'], help='Algorithm to detect communities')
 
 
     args0 = parser.parse_args()
