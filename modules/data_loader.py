@@ -370,7 +370,7 @@ def offline_data_split(training_ratio, to_homo=False, nseeds=5, fill_mode="zero"
     #### single dataset
     print(f"================ Single dataset =================")
     datanames = ['yelp', 'amazon', 'tfinance']
-    datanames = ['weibo', 'reddit', 'tolokers', 'yelp', 'questions', 'elliptic',  'dgraphfin', 'tsocial']
+    # datanames = ['weibo', 'reddit', 'tolokers', 'yelp', 'questions', 'elliptic',  'dgraphfin', 'tsocial']
 
     for name in datanames:
         graph = get_dataset(name, f'{root}/', to_homo=to_homo, random_state=7537) ## random_state not used
@@ -413,128 +413,128 @@ def offline_data_split(training_ratio, to_homo=False, nseeds=5, fill_mode="zero"
         dgl.save_graphs(f"{outdir}/{name}.dglgraph", [graph])
 
 
-    # #### merged dataset
-    # print(f"================ Merged dataset =================")
-    # graphs = []
+    #### merged dataset
+    print(f"================ Merged dataset =================")
+    graphs = []
 
-    # t_n = 0
-    # for name in datanames:
-    #     graph = get_dataset(name, f'{root}/', to_homo=True, random_state=7537)
-    #     t_n += graph.num_nodes()
+    t_n = 0
+    for name in datanames:
+        graph = get_dataset(name, f'{root}/', to_homo=True, random_state=7537)
+        t_n += graph.num_nodes()
 
-    # train_masks = torch.zeros(t_n, nseeds).bool()
-    # val_masks = torch.zeros(t_n, nseeds).bool()
-    # test_masks = torch.zeros(t_n, nseeds).bool()
+    train_masks = torch.zeros(t_n, nseeds).bool()
+    val_masks = torch.zeros(t_n, nseeds).bool()
+    test_masks = torch.zeros(t_n, nseeds).bool()
 
-    # c_n = 0
-    # features_list = []
-    # for n_idx, name in enumerate(datanames):
-    #     graph = get_dataset(name, f'{root}/', to_homo=True, random_state=7537)
-    #     index = np.arange(graph.num_nodes())
-    #     labels = graph.ndata['label']
-    #     if name == 'amazon':
-    #         index = np.arange(3305, graph.num_nodes())
-    #     index += c_n  ###### already have c_n nodes before this graph
-    #     c_n += graph.num_nodes()
-    #     graph.ndata['feature'] = graph.ndata['feature'].float()
-    #     graph.ndata['graph_id'] = torch.LongTensor([n_idx]).repeat(graph.number_of_nodes())
-    #     graph.ndata['number_of_nodes'] = torch.LongTensor([graph.number_of_nodes()]).repeat(graph.number_of_nodes())
-    #     features_list.append(graph.ndata['feature'])
-    #     graphs.append(graph)
+    c_n = 0
+    features_list = []
+    for n_idx, name in enumerate(datanames):
+        graph = get_dataset(name, f'{root}/', to_homo=True, random_state=7537)
+        index = np.arange(graph.num_nodes())
+        labels = graph.ndata['label']
+        if name == 'amazon':
+            index = np.arange(3305, graph.num_nodes())
+        index += c_n  ###### already have c_n nodes before this graph
+        c_n += graph.num_nodes()
+        graph.ndata['feature'] = graph.ndata['feature'].float()
+        graph.ndata['graph_id'] = torch.LongTensor([n_idx]).repeat(graph.number_of_nodes())
+        graph.ndata['number_of_nodes'] = torch.LongTensor([graph.number_of_nodes()]).repeat(graph.number_of_nodes())
+        features_list.append(graph.ndata['feature'])
+        graphs.append(graph)
         
-    #     for seed in np.arange(nseeds):
-    #         train_nids, valid_test_nids = train_test_split(index, stratify=labels[index-c_n],
-    #                                                         train_size=training_ratio/100., random_state=seed, shuffle=True)
-    #         valid_nids, test_nids = train_test_split(valid_test_nids, stratify=labels[valid_test_nids-c_n],
-    #                                                     test_size=0.67, random_state=seed, shuffle=True)   
+        for seed in np.arange(nseeds):
+            train_nids, valid_test_nids = train_test_split(index, stratify=labels[index-c_n],
+                                                            train_size=training_ratio/100., random_state=seed, shuffle=True)
+            valid_nids, test_nids = train_test_split(valid_test_nids, stratify=labels[valid_test_nids-c_n],
+                                                        test_size=0.67, random_state=seed, shuffle=True)   
 
-    #         train_masks[train_nids, seed] = 1
-    #         val_masks[valid_nids, seed] = 1
-    #         test_masks[test_nids, seed] = 1
+            train_masks[train_nids, seed] = 1
+            val_masks[valid_nids, seed] = 1
+            test_masks[test_nids, seed] = 1
             
-    # def diag_merge_features(features_list, fill_mode="zero"):
-    #     #### [feat_list1, feat_list2, feat_list3]
-    #     total_feat_dim = 0
-    #     for feat_tensor in features_list:
-    #         total_feat_dim += feat_tensor.shape[1]
+    def diag_merge_features(features_list, fill_mode="zero"):
+        #### [feat_list1, feat_list2, feat_list3]
+        total_feat_dim = 0
+        for feat_tensor in features_list:
+            total_feat_dim += feat_tensor.shape[1]
 
-    #     c_d = 0
-    #     ret_features_list = []
-    #     for feat_tensor in features_list:
-    #         n, d = feat_tensor.shape
-    #         ret_feat = torch.zeros((n, total_feat_dim)).float()
-    #         ret_feat[:, c_d:c_d+d] = feat_tensor
-    #         c_d += d
+        c_d = 0
+        ret_features_list = []
+        for feat_tensor in features_list:
+            n, d = feat_tensor.shape
+            ret_feat = torch.zeros((n, total_feat_dim)).float()
+            ret_feat[:, c_d:c_d+d] = feat_tensor
+            c_d += d
 
-    #         ret_features_list.append(ret_feat)
+            ret_features_list.append(ret_feat)
 
-    #     assert fill_mode in ["zero", "mean"]
-    #     if fill_mode == "mean":
-    #         means = []
-    #         for ret_feat in ret_features_list:
-    #             means.append(ret_feat.mean(0))
-    #         for i in range(len(ret_features_list)):
-    #             for j in range(len(ret_features_list)):
-    #                 if j == i:
-    #                     continue
-    #                 ret_features_list[i] += means[j].repeat(ret_features_list[i].shape[0], 1)
+        assert fill_mode in ["zero", "mean"]
+        if fill_mode == "mean":
+            means = []
+            for ret_feat in ret_features_list:
+                means.append(ret_feat.mean(0))
+            for i in range(len(ret_features_list)):
+                for j in range(len(ret_features_list)):
+                    if j == i:
+                        continue
+                    ret_features_list[i] += means[j].repeat(ret_features_list[i].shape[0], 1)
 
-    #     return ret_features_list
+        return ret_features_list
 
 
-    # features = diag_merge_features(features_list, fill_mode=fill_mode)
-    # for i in range(len(graphs)):
-    #     graphs[i].ndata['feature'] = features[i]
+    features = diag_merge_features(features_list, fill_mode=fill_mode)
+    for i in range(len(graphs)):
+        graphs[i].ndata['feature'] = features[i]
 
-    # ####### Before dgl.batch to merge graphs, make sure only exists two ndata: feature and label, and NO edata
-    # for i in range(len(graphs)):
-    #     graph = graphs[i]
-    #     ndata_keys = list(graph.ndata.keys())
-    #     for key in ndata_keys:
-    #         if key not in ['feature', 'label', 'graph_id', 'number_of_nodes']:
-    #             graph.ndata.pop(key)
+    ####### Before dgl.batch to merge graphs, make sure only exists two ndata: feature and label, and NO edata
+    for i in range(len(graphs)):
+        graph = graphs[i]
+        ndata_keys = list(graph.ndata.keys())
+        for key in ndata_keys:
+            if key not in ['feature', 'label', 'graph_id', 'number_of_nodes']:
+                graph.ndata.pop(key)
             
-    #     edata_keys = list(graph.edata.keys())
-    #     for key in edata_keys:
-    #         graph.edata.pop(key)
+        edata_keys = list(graph.edata.keys())
+        for key in edata_keys:
+            graph.edata.pop(key)
             
-    #     graphs[i] = graph
+        graphs[i] = graph
         
-    # ####### Merge different graphs
-    # graph = dgl.batch(graphs)
+    ####### Merge different graphs
+    graph = dgl.batch(graphs)
         
 
-    # graph.ndata['train_masks'] = train_masks
-    # graph.ndata['val_masks'] = val_masks
-    # graph.ndata['test_masks'] = test_masks
+    graph.ndata['train_masks'] = train_masks
+    graph.ndata['val_masks'] = val_masks
+    graph.ndata['test_masks'] = test_masks
 
 
-    # n, d = graph.ndata['feature'].shape
-    # new_features = torch.randn(n, 32).float()
-    # graph.ndata['random_feature'] = new_features
+    n, d = graph.ndata['feature'].shape
+    new_features = torch.randn(n, 32).float()
+    graph.ndata['random_feature'] = new_features
 
-    # new_features = torch.ones(n, 32).float()
-    # graph.ndata['same_feature'] = new_features
+    new_features = torch.ones(n, 32).float()
+    graph.ndata['same_feature'] = new_features
 
-    # print(f"merge: {graph.ndata['train_masks'].sum(0)}\n {graph.ndata['val_masks'].sum(0)}\n {graph.ndata['test_masks'].sum(0)}")
-    # print(f"merge: {graph.ndata['train_masks'].sum(0)*100.0/n}%\n {graph.ndata['val_masks'].sum(0)*100.0/n}%\n {graph.ndata['test_masks'].sum(0)*100.0/n}%")
+    print(f"merge: {graph.ndata['train_masks'].sum(0)}\n {graph.ndata['val_masks'].sum(0)}\n {graph.ndata['test_masks'].sum(0)}")
+    print(f"merge: {graph.ndata['train_masks'].sum(0)*100.0/n}%\n {graph.ndata['val_masks'].sum(0)*100.0/n}%\n {graph.ndata['test_masks'].sum(0)*100.0/n}%")
     
-    # dgl.save_graphs(f"{outdir}/merge.dglgraph", [graph])
+    dgl.save_graphs(f"{outdir}/merge.dglgraph", [graph])
     
-    # #### check train/val/test splits
-    # subgraph_idx = graph.ndata['graph_id']
-    # subgraph_nnodes = graph.ndata['number_of_nodes']
-    # train_masks = graph.ndata['train_masks']
-    # val_masks = graph.ndata['val_masks']
-    # test_masks = graph.ndata['test_masks']
-    # for n_idx, name in enumerate(datanames):
-    #     node_idx = torch.nonzero(torch.where(subgraph_idx == n_idx, 1, 0), as_tuple=True)[0]
-    #     nnodes = subgraph_nnodes[node_idx]
-    #     assert torch.unique(nnodes).shape[0] == 1
-    #     nnodes = nnodes[0]
+    #### check train/val/test splits
+    subgraph_idx = graph.ndata['graph_id']
+    subgraph_nnodes = graph.ndata['number_of_nodes']
+    train_masks = graph.ndata['train_masks']
+    val_masks = graph.ndata['val_masks']
+    test_masks = graph.ndata['test_masks']
+    for n_idx, name in enumerate(datanames):
+        node_idx = torch.nonzero(torch.where(subgraph_idx == n_idx, 1, 0), as_tuple=True)[0]
+        nnodes = subgraph_nnodes[node_idx]
+        assert torch.unique(nnodes).shape[0] == 1
+        nnodes = nnodes[0]
 
-    #     print(f"{name}: #Train: {train_masks[node_idx].sum(0)}, #Val: {val_masks[node_idx].sum(0)}, #Test: {test_masks[node_idx].sum(0)}")
-    #     print(f"{name}: #Train: {train_masks[node_idx].sum(0)*100.0/nnodes}%, #Val: {val_masks[node_idx].sum(0)*100.0/nnodes}%, #Test: {test_masks[node_idx].sum(0)*100.0/nnodes}%")
+        print(f"{name}: #Train: {train_masks[node_idx].sum(0)}, #Val: {val_masks[node_idx].sum(0)}, #Test: {test_masks[node_idx].sum(0)}")
+        print(f"{name}: #Train: {train_masks[node_idx].sum(0)*100.0/nnodes}%, #Val: {val_masks[node_idx].sum(0)*100.0/nnodes}%, #Test: {test_masks[node_idx].sum(0)*100.0/nnodes}%")
 
 
 class OnlineLCLoader(torch_dataloader):
