@@ -21,7 +21,7 @@ cd ..
 
 # ###### Remove consistent training, only to validate the GNN encoder
 # ###### Train on multiple datasets
-# CUDA_VISIBLE_DEVICES="5" python -u pretrain_merge.py --config config/amazon.yml --runs 5   2>&1 | tee -a logs/train_merge.log   #### Use amazon's config
+CUDA_VISIBLE_DEVICES="5" python -u pretrain_merge.py --config config/amazon.yml --runs 5   2>&1 | tee -a logs/train_merge.log   #### Use amazon's config
 # CUDA_VISIBLE_DEVICES="5" python -u pretrain_merge.py --config config/amazon.yml --runs 3 --ego  2>&1 | tee -a logs/train_merge.log   #### Use amazon's config
 
 # ###### Then finetune on target dataset
@@ -126,7 +126,7 @@ cd ..
 # CUDA_VISIBLE_DEVICES="5" python -u baseline.py --config config/yelp.yml --runs 5 --random_feature 
 # CUDA_VISIBLE_DEVICES="5" python -u baseline.py --config config/tfinance.yml --runs 5 --random_feature 
 # CUDA_VISIBLE_DEVICES="5" CUDA_LAUNCH_BLOCKING=1 python -u baseline.py --config config/weibo.yml --runs 1 
-CUDA_VISIBLE_DEVICES="5" python -u baseline.py --config config/weibo.yml --runs 1
+# CUDA_VISIBLE_DEVICES="5" python -u baseline.py --config config/weibo.yml --runs 1
 
 
 cd -
