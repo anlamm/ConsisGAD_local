@@ -9,7 +9,7 @@ from typing import Any
 import networkx as nx
 from graspologic.partition import hierarchical_leiden
 
-from utils import stable_largest_connected_component
+from .utils import stable_largest_connected_component, to_df
 
 import torch
 from torch_geometric.datasets import Planetoid
@@ -97,10 +97,11 @@ if __name__ == '__main__':
 
     # Convert to NetworkX graph
     G_nx = to_networkx(data, to_undirected=True)
+    max_cluster_size = 20
 
     node_id_to_community_map = _compute_leiden_communities(
         graph=G_nx,
-        max_cluster_size=20,
+        max_cluster_size=max_cluster_size,
         use_lcc=True,
         seed=0xDEADBEEF,
     )
@@ -117,6 +118,13 @@ if __name__ == '__main__':
 
         commids = np.unique(np.array(list(nodeid2commid.values())))
         with open(f'temp/commsta_level_{level}.txt', 'w') as f:
+            exceed_max_size_cnt = 0
             for commid in commids:
                 cnt = (np.array(list(nodeid2commid.values())) == commid).sum()
                 f.write(f'{commid}\t{cnt}\n')
+                if cnt > max_cluster_size:
+                    exceed_max_size_cnt += 1
+        print(f'@Exceed{max_cluster_size}: {level}\t{exceed_max_size_cnt}')
+
+    df = to_df(node_id_to_community_map=node_id_to_community_map)
+    df.to_csv(f'temp/Communities.csv', sep=',', index=False)

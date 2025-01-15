@@ -517,12 +517,16 @@ def run_inference(args):
     from networkx.algorithms.community.label_propagation import label_propagation_communities
     from networkx.algorithms.community.louvain import louvain_communities
     from sklearn.cluster import KMeans, SpectralClustering as SC
+    from clustering import _compute_leiden_communities, aggmmr_cluster
+    from clustering.utils import to_df
 
     community_detection_algos = {
         'LP': label_propagation_communities,
         'Louvain': louvain_communities,
         'KMeans': KMeans,
         'Spectral': SC,
+        'Hierarchical_Leiden': _compute_leiden_communities,
+        'AGGMMR': aggmmr_cluster,
     }
 
 
@@ -534,7 +538,6 @@ def run_inference(args):
         input_nxgraph = dgl.to_networkx(input_dglgraph)
         input_nxgraph = nx.Graph(input_nxgraph)
         
-
         func = community_detection_algos.get(algo_name, None)
         if algo_name == 'LP':
             # https://networkx.org/documentation/stable/reference/algorithms/generated/networkx.algorithms.community.label_propagation.label_propagation_communities.html#networkx.algorithms.community.label_propagation.label_propagation_communities
@@ -544,6 +547,8 @@ def run_inference(args):
             for comm, nodeids in enumerate(list(ret)):
                 for nodeid in nodeids:
                     node2comm[nodeid] = comm
+
+            df = pd.DataFrame({'nodeIds': nodeids, 'Community ID': list(node2comm.values())}, columns = ['nodeIds', 'Community ID'])
         elif algo_name == 'Louvain':
             # https://networkx.org/documentation/stable/reference/algorithms/generated/networkx.algorithms.community.louvain.louvain_communities.html#networkx.algorithms.community.louvain.louvain_communities
             ret = func(input_nxgraph)
@@ -552,6 +557,8 @@ def run_inference(args):
             for comm, nodeids in enumerate(ret):
                 for nodeid in nodeids:
                     node2comm[nodeid] = comm
+            
+            df = pd.DataFrame({'nodeIds': nodeids, 'Community ID': list(node2comm.values())}, columns = ['nodeIds', 'Community ID'])
         elif algo_name == 'KMeans' or algo_name == 'Spectral':
             n_classes = 5
             clustering = func(n_clusters=n_classes)
@@ -560,16 +567,60 @@ def run_inference(args):
             node2comm = {}
             for nodeid, comm in enumerate(ret):
                 node2comm[nodeid] = comm
+            
+            df = pd.DataFrame({'nodeIds': nodeids, 'Community ID': list(node2comm.values())}, columns = ['nodeIds', 'Community ID'])
+        elif algo_name == 'Hierarchical_Leiden':
+            max_cluster_size = 20
+            use_lcc=False
+
+            node_id_to_community_map = func(
+                input_nxgraph,
+                max_cluster_size=max_cluster_size,
+                use_lcc=use_lcc,
+                seed=0xDEADBEEF,
+            )
+
+            df = to_df(node_id_to_community_map=node_id_to_community_map)
+            df['avg_pred'] = df.apply(lambda r: test_pred.numpy()[np.array(r['nodeids'])].mean(), axis=1)
+            df['max_pred'] = df.apply(lambda r: test_pred.numpy()[np.array(r['nodeids'])].max(), axis=1)
+            df['min_pred'] = df.apply(lambda r: test_pred.numpy()[np.array(r['nodeids'])].min(), axis=1)
+            df['pred@75'] = df.apply(lambda r: np.quantile(test_pred.numpy()[np.array(r['nodeids'])], .75), axis=1)
+            df['pred@50'] = df.apply(lambda r: np.quantile(test_pred.numpy()[np.array(r['nodeids'])], .50), axis=1)
+            df['pred@25'] = df.apply(lambda r: np.quantile(test_pred.numpy()[np.array(r['nodeids'])], .25), axis=1)
+            
+        elif algo_name == 'AGGMMR':
+            nclass = 50
+            features = test_emb.cpu().numpy()
+            max_cluster_size = 20
+            use_lcc=False
+
+            node_id_to_community_map = func(
+                input_nxgraph,
+                features,
+                nclass,
+                max_cluster_size=max_cluster_size,
+                use_lcc=use_lcc,
+                seed=0xDEADBEEF,
+            )
+
+            df = to_df(node_id_to_community_map=node_id_to_community_map)
+            df['avg_pred'] = df.apply(lambda r: test_pred.numpy()[np.array(r['nodeids'])].mean(), axis=1)
+            df['max_pred'] = df.apply(lambda r: test_pred.numpy()[np.array(r['nodeids'])].max(), axis=1)
+            df['min_pred'] = df.apply(lambda r: test_pred.numpy()[np.array(r['nodeids'])].min(), axis=1)
+            df['pred@75'] = df.apply(lambda r: np.quantile(test_pred.numpy()[np.array(r['nodeids'])], .75), axis=1)
+            df['pred@50'] = df.apply(lambda r: np.quantile(test_pred.numpy()[np.array(r['nodeids'])], .50), axis=1)
+            df['pred@25'] = df.apply(lambda r: np.quantile(test_pred.numpy()[np.array(r['nodeids'])], .25), axis=1)
         else:
             raise NotImplementedError(f'Unknown community detection algorithm: {algo_name}')
         
-        return node2comm
+        return df
 
-    node2comm = community_detection_warper(args['comm_algo'], subgraph)
+    df = community_detection_warper(args['comm_algo'], subgraph)
 
-    print(len(nodeids), len(node2comm))
-    df = pd.DataFrame({'nodeIds': nodeids, 'Community ID': list(node2comm.values())}, columns = ['nodeIds', 'Community ID'])
+    # print(len(nodeids), len(node2comm))
+    # df = pd.DataFrame({'nodeIds': nodeids, 'Community ID': list(node2comm.values())}, columns = ['nodeIds', 'Community ID'])
     df.to_csv('black_communities.csv', index=False)
+    print(f'Community results saved to ./black_communities.csv')
 
     return 0
     
@@ -605,7 +656,7 @@ if __name__ == '__main__':
     parser.add_argument('--num_layers', type=int, default=1)
 
     parser.add_argument('--thres', type=float, default=0.5, help=">thres are predicted as black users")
-    parser.add_argument('--comm_algo', type=str, default='LP', choices=['LP', 'Louvain', 'KMeans', 'Spectral'], help='Algorithm to detect communities')
+    parser.add_argument('--comm_algo', type=str, default='LP', choices=['LP', 'Louvain', 'KMeans', 'Spectral', 'Hierarchical_Leiden', 'AGGMMR'], help='Algorithm to detect communities')
 
 
     args0 = parser.parse_args()
