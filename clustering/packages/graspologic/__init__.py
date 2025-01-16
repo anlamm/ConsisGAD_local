@@ -1,22 +1,24 @@
 # Copyright (c) Microsoft Corporation and contributors.
 # Licensed under the MIT License.
 
-import graspologic.align
-import graspologic.cluster
-import graspologic.datasets
-import graspologic.embed
-import graspologic.inference
-import graspologic.layouts
-import graspologic.models
-import graspologic.nominate
-import graspologic.partition
-import graspologic.pipeline
-import graspologic.plot
-import graspologic.preprocessing
-import graspologic.simulations
-import graspologic.subgraph
-import graspologic.utils
-from graspologic.types import *
-from graspologic.version import __version
+from . import align
+from . import cluster
+from . import datasets
+from . import embed
+from . import inference
+from . import layouts
+from . import models
+from . import nominate
+from . import partition
+from . import pipeline
+from . import plot
+from . import preprocessing
+from . import simulations
+from . import subgraph
+from . import utils
+from .types import *
+from .version import __version
 
 __version__ = __version()
+
+

@@ -19,7 +19,7 @@ from sklearn.model_selection import ParameterGrid
 from sklearn.utils import check_scalar
 from typing_extensions import Literal
 
-from graspologic.types import Dict, List, Tuple
+from ..types import Dict, List, Tuple
 
 from .base import BaseCluster
 

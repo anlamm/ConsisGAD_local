@@ -8,11 +8,11 @@ import networkx as nx
 import numpy as np
 from beartype import beartype
 
-from graspologic.embed import OmnibusEmbed
-from graspologic.embed.base import SvdAlgorithmType
-from graspologic.preconditions import check_argument, is_real_weighted
-from graspologic.types import List, Set, Tuple
-from graspologic.utils import (
+from ...embed import OmnibusEmbed
+from ...embed.base import SvdAlgorithmType
+from ...preconditions import check_argument, is_real_weighted
+from ...types import List, Set, Tuple
+from ...utils import (
     augment_diagonal,
     largest_connected_component,
     pass_to_ranks,

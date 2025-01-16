@@ -6,8 +6,8 @@ from typing import Any
 import matplotlib.pyplot as plt
 import networkx as nx
 
-from graspologic.layouts.classes import NodePosition
-from graspologic.types import Dict, List, Tuple
+from ..layouts.classes import NodePosition
+from ..types import Dict, List, Tuple
 
 
 def _calculate_x_y_domain(

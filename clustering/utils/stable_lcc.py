@@ -7,7 +7,7 @@
 from typing import Any, cast
 
 import networkx as nx
-from graspologic.utils import largest_connected_component
+from ..packages.graspologic.utils import largest_connected_component
 
 from .normalize_node_names import normalize_node_names
 

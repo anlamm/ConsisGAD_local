@@ -11,7 +11,7 @@ from scipy.sparse import csr_array
 from scipy.stats import norm
 from typing_extensions import Literal
 
-from graspologic.types import List, Tuple
+from ..types import List, Tuple
 
 SvdAlgorithmType = Literal["full", "truncated", "randomized", "eigsh"]
 

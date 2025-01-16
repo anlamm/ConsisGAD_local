@@ -7,7 +7,7 @@ import numpy as np
 from sklearn.base import BaseEstimator
 from typing_extensions import Literal
 
-from graspologic.types import List
+from ..types import List
 
 from ..types import GraphRepresentation
 from ..utils import pass_to_ranks

@@ -4,13 +4,13 @@
 import warnings
 from typing import Any, NamedTuple, Optional, Union
 
-import graspologic_native as gn
+from .. import graspologic_native as gn
 import networkx as nx
 import numpy as np
 import scipy
 from beartype import beartype
 
-from graspologic.types import AdjacencyMatrix, Dict, GraphRepresentation, List, Tuple
+from ..types import AdjacencyMatrix, Dict, GraphRepresentation, List, Tuple
 
 from .. import utils
 from ..preconditions import check_argument

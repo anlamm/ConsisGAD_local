@@ -5,7 +5,7 @@ from typing import Any, Optional
 
 import numpy as np
 
-from graspologic.types import Dict
+from ..types import Dict
 
 from ..embed import AdjacencySpectralEmbed
 from ..simulations import p_from_latent

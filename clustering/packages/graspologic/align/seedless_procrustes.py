@@ -7,7 +7,7 @@ import numpy as np
 import ot
 from sklearn.utils import check_array
 
-from graspologic.types import Tuple
+from ..types import Tuple
 
 from .base import BaseAlign
 from .orthogonal_procrustes import OrthogonalProcrustes

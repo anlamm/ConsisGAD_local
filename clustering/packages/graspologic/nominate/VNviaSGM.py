@@ -5,7 +5,7 @@ from typing import Any, Optional, Union
 import numpy as np
 from sklearn.base import BaseEstimator
 
-from graspologic.types import Dict, List
+from ..types import Dict, List
 
 from ..match import graph_match
 

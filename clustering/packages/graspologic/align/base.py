@@ -8,7 +8,7 @@ import numpy as np
 from sklearn.base import BaseEstimator
 from sklearn.utils import check_array
 
-from graspologic.types import Tuple
+from ..types import Tuple
 
 Self = TypeVar("Self", bound="BaseAlign")
 

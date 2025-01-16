@@ -11,7 +11,7 @@ from sklearn.metrics.pairwise import PAIRED_DISTANCES, PAIRWISE_KERNEL_FUNCTIONS
 from sklearn.utils import check_array, check_random_state
 from typing_extensions import Literal
 
-from graspologic.types import Dict, Tuple
+from ..types import Dict, Tuple
 
 from ..align import SeedlessProcrustes, SignFlips
 from ..embed import AdjacencySpectralEmbed, select_dimension

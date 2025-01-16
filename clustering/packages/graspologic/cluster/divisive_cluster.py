@@ -11,7 +11,7 @@ from sklearn.utils import check_array
 from sklearn.utils.validation import check_is_fitted
 from typing_extensions import Literal
 
-from graspologic.types import Dict, Tuple
+from ..types import Dict, Tuple
 
 from .autogmm import AutoGMMCluster
 from .kclust import KMeansCluster

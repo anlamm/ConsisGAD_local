@@ -11,7 +11,7 @@ import numpy as np
 import umap
 from sklearn.manifold import TSNE
 
-from graspologic.types import Dict, List, Tuple
+from ..types import Dict, List, Tuple
 
 from ..embed import node2vec_embed
 from ..partition import leiden

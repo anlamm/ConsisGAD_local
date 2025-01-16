@@ -1,3 +1,3 @@
-from .graspologic import graspologic
+from . import graspologic
 
 __all__ = ['graspologic']

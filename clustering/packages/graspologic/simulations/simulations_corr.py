@@ -5,8 +5,8 @@ from typing import Union
 
 import numpy as np
 
-from graspologic.simulations import sample_edges
-from graspologic.types import List, Tuple
+from ..simulations import sample_edges
+from ..types import List, Tuple
 
 
 def check_dirloop(directed: bool, loops: bool) -> None:

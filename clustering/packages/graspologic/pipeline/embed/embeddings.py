@@ -21,7 +21,7 @@ from typing import Any
 import numpy as np
 from beartype import beartype
 
-from graspologic.types import Tuple
+from ...types import Tuple
 
 
 class Embeddings:

@@ -8,7 +8,7 @@ import numpy as np
 from joblib import Parallel, delayed
 from typing_extensions import Literal
 
-from graspologic.types import Tuple
+from ..types import Tuple
 
 from ..align import OrthogonalProcrustes
 from ..embed import AdjacencySpectralEmbed, OmnibusEmbed, select_dimension

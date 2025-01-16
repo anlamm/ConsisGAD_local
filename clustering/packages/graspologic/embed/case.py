@@ -4,9 +4,9 @@ import numpy as np
 from scipy.sparse.linalg import LinearOperator, eigsh
 from sklearn.preprocessing import normalize, scale
 
-from graspologic.embed.base import BaseSpectralEmbed
-from graspologic.types import Tuple
-from graspologic.utils import import_graph, is_almost_symmetric, to_laplacian
+from ..embed.base import BaseSpectralEmbed
+from ..types import Tuple
+from ..utils import import_graph, is_almost_symmetric, to_laplacian
 
 
 class CovariateAssistedEmbed(BaseSpectralEmbed):

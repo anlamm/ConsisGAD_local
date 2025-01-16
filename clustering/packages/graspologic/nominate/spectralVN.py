@@ -9,7 +9,7 @@ from sklearn.neighbors import NearestNeighbors
 from sklearn.utils import check_array
 from typing_extensions import Literal
 
-from graspologic.types import Dict, List, Tuple
+from ..types import Dict, List, Tuple
 
 from ..embed import AdjacencySpectralEmbed, BaseSpectralEmbed, LaplacianSpectralEmbed
 
