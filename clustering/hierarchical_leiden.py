@@ -7,7 +7,7 @@ import logging
 from typing import Any
 
 import networkx as nx
-from graspologic.partition import hierarchical_leiden
+from .packages.graspologic.partition import hierarchical_leiden
 
 from .utils import stable_largest_connected_component, to_df
 
