@@ -8,7 +8,7 @@ from typing import Callable, Optional, Union
 
 import numpy as np
 from beartype import beartype
-from ot import sinkhorn
+from ...ot import sinkhorn
 from scipy.optimize import linear_sum_assignment
 from sklearn.utils import check_scalar
 
