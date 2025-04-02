@@ -108,6 +108,7 @@ def UDA_train_epoch(epoch, model, loss_func, graph, label_loader, unlabel_loader
     unlabel_loader_iter = iter(unlabel_loader)
     label_loader_iter = iter(label_loader)
     
+    losses = []
     for idx in range(num_iters):
         try:
             label_idx = label_loader_iter.__next__()
@@ -205,8 +206,12 @@ def UDA_train_epoch(epoch, model, loss_func, graph, label_loader, unlabel_loader
         loss.backward()
         optimizer.step()     
 
-        if idx % 10 == 0:
-            print(f"Iter {idx+1}/{num_iters}, loss: {loss.item()}")
+        losses.append(loss.item())
+
+        # if idx % 10 == 0:
+        #     print(f"Iter {idx+1}/{num_iters}, loss: {loss.item()}")
+    if epoch % 1 == 0:
+        print(f"Epoch {epoch+1}/{args['epochs']}, loss: {np.mean(losses)}")
         
 
 def simple_train_epoch(epoch, model, loss_func, graph, label_loader, unlabel_loader, optimizer, augmentor, args):
@@ -249,7 +254,7 @@ def simple_train_epoch(epoch, model, loss_func, graph, label_loader, unlabel_loa
 
         losses.append(loss.item())
 
-    if epoch % 10 == 0:
+    if epoch % 1 == 0:
         print(f"Epoch {epoch+1}/{args['epochs']}, loss: {np.mean(losses)}")
 
 
@@ -405,7 +410,8 @@ def run_model(args):
     if args['ego']:
         train_epoch = subgraph_classification_train_epoch
     else:
-        train_epoch = simple_train_epoch
+        # train_epoch = simple_train_epoch
+        train_epoch = UDA_train_epoch
     attn_drop = SoftAttentionDrop(args).to(args['device'])
     if args['trainable-optim'] == 'rmsprop':
         ad_optim = optim.RMSprop(attn_drop.parameters(), lr=args['trainable-lr'], weight_decay=0.0)

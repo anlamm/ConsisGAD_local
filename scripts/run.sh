@@ -5,13 +5,13 @@ cd ..
 
 [ -d logs ] || mkdir logs
 
-# python -u main.py --config config/amazon.yml --runs 5 2>&1 | tee logs/train_amazon.log
+# python -u main.py --config config/amazon.yml --runs 1 2>&1 | tee logs/train_amazon.log
 # python -u main.py --config config/yelp.yml --runs 5 2>&1 | tee logs/train_yelp.log
 # python -u main.py --config config/tfinance.yml --runs 5 2>&1 | tee logs/train_tfinance.log
 
 
 # ###### Remove consistent training, only to validate the GNN encoder
-# CUDA_VISIBLE_DEVICES="5" python -u baseline.py --config config/amazon.yml --runs 5  2>&1 | tee -a logs/train_amazon.log
+CUDA_VISIBLE_DEVICES="0" python -u baseline.py --config config/amazon.yml --runs 1  2>&1 | tee -a logs/train_amazon.log
 # CUDA_VISIBLE_DEVICES="5" python -u baseline.py --config config/yelp.yml --runs 5   2>&1 | tee -a logs/train_yelp.log
 # CUDA_VISIBLE_DEVICES="5" python -u baseline.py --config config/tfinance.yml --runs 5   2>&1 | tee -a logs/train_tfinance.log
 
@@ -21,7 +21,7 @@ cd ..
 
 # ###### Remove consistent training, only to validate the GNN encoder
 # ###### Train on multiple datasets
-CUDA_VISIBLE_DEVICES="5" python -u pretrain_merge.py --config config/amazon.yml --runs 5   2>&1 | tee -a logs/train_merge.log   #### Use amazon's config
+# CUDA_VISIBLE_DEVICES="5" python -u pretrain_merge.py --config config/amazon.yml --runs 5   2>&1 | tee -a logs/train_merge.log   #### Use amazon's config
 # CUDA_VISIBLE_DEVICES="5" python -u pretrain_merge.py --config config/amazon.yml --runs 3 --ego  2>&1 | tee -a logs/train_merge.log   #### Use amazon's config
 
 # ###### Then finetune on target dataset
