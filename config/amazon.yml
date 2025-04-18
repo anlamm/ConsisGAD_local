@@ -1,4 +1,4 @@
-data-set: 'amazon'
+data-set: 'amazon_split02'
 to-homo: False
 shuffle-train: True
 model: 'backbone'
